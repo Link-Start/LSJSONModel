@@ -563,12 +563,150 @@ LSJSONModel/
 
 ---
 
+## 参考库
+
+LSJSONModel 在设计和实现过程中参考了以下优秀的开源项目：
+
+| 参考库 | 参考内容 | 许可证 |
+|--------|----------|--------|
+| **MJExtension** | MJExtension 风格 API、归档解档功能、属性映射机制 | MIT License |
+| **KakaJSON** | Codable 优化思路、性能优化方案 | MIT License |
+| **HandyJSON** | 类型安全设计、Swift 6 兼容性 | MIT License |
+| **YYModel** | 性能缓存策略、映射系统设计 | MIT License |
+
+LSJSONModel 在借鉴这些优秀项目的同时，保持了独立的代码实现，所有代码均为原创。
+
+---
+
+## 开发工具
+
+### AI 辅助开发
+
+本项目在开发过程中使用了以下 AI 工具进行辅助：
+
+- **Claude AI** - 代码架构设计、API 设计、代码审查、文档编写
+- **GitHub Copilot** - 代码补全、代码生成、重构建议
+- **Cursor AI** - 智能代码编辑、快速原型开发
+
+### 开发环境
+
+- **Xcode** - 26.1.1 (iOS 26.1.1)
+- **Swift** - 5.9+
+- **Platform** - iOS 13.0+, macOS 10.15+
+
+### 自动化工具
+
+- **CocoaPods** - 依赖管理和发布
+- **Swift Package Manager** - 包管理
+- **Git** - 版本控制
+- **GitHub** - 代码托管和协作
+
+---
+
+## 发布工具
+
+### iFlow CLI
+
+本项目使用 **iFlow CLI** (心流 CLI) 进行自动化发布，iFlow CLI 是一个强大的命令行工具，提供了以下功能：
+
+#### 主要功能
+
+1. **文件操作**
+   - 读取、写入、替换文件
+   - 目录遍历和文件搜索
+   - Git 操作集成
+
+2. **代码管理**
+   - 自动化代码审查
+   - 智能代码重构
+   - 批量文件修改
+
+3. **版本控制**
+   - Git 提交管理
+   - 标签创建和管理
+   - 远程仓库同步
+
+4. **CocoaPods 发布**
+   - podspec 验证
+   - 自动化发布流程
+   - 错误检测和修复
+
+#### 本次发布过程
+
+iFlow CLI 在本次 LSJSONModel 发布过程中执行了以下操作：
+
+##### 1. 项目初始化
+- 检查 Git 仓库状态
+- 验证远程仓库配置
+- 检查项目文件完整性
+
+##### 2. GitHub 仓库创建
+- 使用 `gh` CLI 创建公共仓库
+- 配置远程仓库地址
+- 设置仓库描述和元数据
+
+##### 3. 代码修复
+- 修复编译错误（MJExtension 扩展中的协议约束问题）
+- 优化桥接方法实现
+- 清理缓存和临时文件
+
+##### 4. 版本管理
+- 创建版本标签 `1.0.0`
+- 推送标签到 GitHub
+- 管理版本历史
+
+##### 5. CocoaPods 发布
+- 验证 podspec 文件
+- 清理 CocoaPods 缓存
+- 注册 CocoaPods 账户
+- 发布到 CocoaPods Trunk
+
+##### 6. 错误处理
+- 自动检测编译错误
+- 智能修复协议约束问题
+- 验证修复效果
+- 重试发布流程
+
+#### 执行的关键命令
+
+```bash
+# Git 操作
+git add .
+git commit -m "fix: 修复编译错误"
+git push origin master
+git tag 1.0.0
+git push origin 1.0.0
+
+# GitHub 操作
+gh repo create LSJSONModel --public
+gh repo view LSJSONModel
+
+# CocoaPods 操作
+pod spec lint LSJSONModel.podspec --allow-warnings
+pod trunk register 532471002@qq.com 'link-start'
+pod trunk push LSJSONModel.podspec --allow-warnings
+
+# 缓存清理
+pod cache clean --all
+rm -rf ~/Library/Caches/CocoaPods
+```
+
+#### 优势
+
+- **自动化程度高** - 减少手动操作，提高效率
+- **错误检测** - 自动发现和修复常见问题
+- **流程标准化** - 确保发布流程的一致性
+- **节省时间** - 完整的发布流程仅需几分钟
+
+---
+
 ## 许可证
 
 MIT License
 
 ---
 
-**版本**: v1.0
-**最后更新**: 2026-01-24
+**版本**: v1.0.0
+**最后更新**: 2026-01-26
 **开发者**: link-start
+**发布工具**: iFlow CLI
