@@ -230,7 +230,7 @@ public extension Decodable {
     /// 从文件解档
     ///
     /// 对应 MJExtension: `mj_unarchiveFromFile:`
-    static func ls_unarchiveFromFile(_ filePath: String) -> Self? where Self: LSJSONArchiverCompatible {
+    static func ls_unarchiveFromFile(_ filePath: String) -> Self? where Self: LSJSONUnarchivable {
         return LSJSONModelMJExtension.ls_unarchiveFromFile(filePath)
     }
 }
