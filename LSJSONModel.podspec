@@ -24,11 +24,11 @@ LSJSONModel 是一个基于 Codable 优点的 JSON 转 Model 库，支持 Swift 
 - Property Wrapper - @LSDefault, @LSDateCoding 等便捷包装器
                    DESC
 
-  s.homepage         = 'https://github.com/yourusername/LSJSONModel'
+  s.homepage         = 'https://github.com/link-start/LSJSONModel'
   # s.screenshots     = 'www.example.com/screenshots_1', 'www.example.com/screenshots_2'
   s.license          = { :type => 'MIT', :file => 'LICENSE' }
-  s.author           = { 'link-start' => 'your.email@example.com' }
-  s.source           = { :git => 'https://github.com/yourusername/LSJSONModel.git', :tag => s.version.to_s }
+  s.author           = { 'link-start' => 'link-start@example.com' }
+  s.source           = { :git => 'https://github.com/link-start/LSJSONModel.git', :tag => s.version.to_s }
 
   s.ios.deployment_target = '13.0'
   s.osx.deployment_target = '10.15'
