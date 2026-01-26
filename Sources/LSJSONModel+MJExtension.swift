@@ -97,7 +97,10 @@ public enum LSJSONModelMJExtension {
     /// let dict = user.ls_keyValues
     /// ```
     public static func ls_keyValues<T: Encodable>(_ object: T) -> [String: Any]? {
-        return object.ls_toDictionary()
+        guard let data = try? JSONEncoder().encode(object) else {
+            return nil
+        }
+        return try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
     }
 
     /// 对象转换为 JSON 字符串
@@ -183,7 +186,10 @@ public enum LSJSONModelMJExtension {
     /// let user = User.ls_unarchiveFromFile("/path/to/user.archive")
     /// ```
     public static func ls_unarchiveFromFile<T: LSJSONUnarchivable>(_ filePath: String) -> T? {
-        return T.ls_unarchive(from: filePath)
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: filePath)) else {
+            return nil
+        }
+        return T.ls_unarchive(from: data)
     }
 
     // MARK: - 属性设置 (仅 class)
