@@ -13,7 +13,8 @@ let package = Package(
         .target(
             name: "LSJSONModel",
             path: "Sources",
-            exclude: ["Docs"]
+            exclude: ["Docs"],
+            resources: [.process("Resources")]
         ),
         // 测试模块
         .testTarget(

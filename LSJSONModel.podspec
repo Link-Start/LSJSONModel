@@ -35,14 +35,14 @@ LSJSONModel 是一个基于 Codable 优点的 JSON 转 Model 库，支持 Swift 
   s.swift_version = '5.9'
 
   s.source_files = 'Sources/**/*.swift'
-  
+
   # Exclude documentation and test files
   s.exclude_files = 'Sources/Docs/**/*', 'Sources/Tests/**/*'
-  
-  # If you need to specify any resources, add them here
-  # s.resource_bundles = {
-  #   'LSJSONModel' => ['Sources/Assets/*.png']
-  # }
+
+  # Privacy manifest for App Store compliance
+  s.resource_bundles = {
+    'LSJSONModel_Privacy' => ['Sources/Resources/PrivacyInfo.xcprivacy']
+  }
 
   # s.public_header_files = 'Pod/Classes/**/*.h'
   # s.frameworks = 'UIKit', 'MapKit'
