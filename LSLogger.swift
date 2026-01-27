@@ -26,6 +26,7 @@ public enum LSLogLevel: Int, Sendable {
 /// 统一日志工具类
 /// 使用单例模式，全局唯一
 /// 纯 Swift 实现，支持 Swift 6
+/// 使用内部锁确保线程安全
 public final class LSLogger: @unchecked Sendable {
 
     // MARK: - 单例
@@ -33,35 +34,46 @@ public final class LSLogger: @unchecked Sendable {
 
     // MARK: - 属性
 
+    /// 内部锁，确保线程安全
+    private let lock = NSLock()
+
     /// 当前日志级别
-    private var currentLogLevel: LSLogLevel
+    private var _currentLogLevel: LSLogLevel
 
     /// 是否启用日志
-    private var isLoggingEnabled: Bool
+    private var _isLoggingEnabled: Bool
 
     /// 日志前缀
-    private var logPrefix: String
+    private var _logPrefix: String
 
     /// 当前日志级别（公开，用于调试）
     public var logLevel: LSLogLevel {
-        return currentLogLevel
+        get { lock.withLock { _currentLogLevel } }
+        set { lock.withLock { _currentLogLevel = newValue } }
     }
 
     /// 是否启用日志（公开，用于调试）
     public var loggingEnabled: Bool {
-        return isLoggingEnabled
+        get { lock.withLock { _isLoggingEnabled } }
+        set { lock.withLock { _isLoggingEnabled = newValue } }
+    }
+
+    /// 日志前缀（公开，用于调试）
+    public var logPrefix: String {
+        get { lock.withLock { _logPrefix } }
+        set { lock.withLock { _logPrefix = newValue } }
     }
 
     // MARK: - 初始化
     private init() {
         #if DEBUG
-        self.currentLogLevel = .debug
-        self.isLoggingEnabled = true
-        self.logPrefix = "[LSJSONModel]"
+        self._currentLogLevel = .debug
+        self._isLoggingEnabled = true
+        self._logPrefix = "[LSJSONModel]"
         #else
-        self.currentLogLevel = .none
-        self.isLoggingEnabled = false
-        self.logPrefix = "[LSJSONModel]"
+        self._currentLogLevel = .none
+        self._isLoggingEnabled = false
+        self._logPrefix = "[LSJSONModel]"
         #endif
     }
 
@@ -70,19 +82,19 @@ public final class LSLogger: @unchecked Sendable {
     /// 设置日志级别
     /// - Parameter level: 日志级别
     public func setLogLevel(_ level: LSLogLevel) {
-        self.currentLogLevel = level
+        lock.withLock { _currentLogLevel = level }
     }
 
     /// 启用或禁用日志
     /// - Parameter enabled: 是否启用
     public func setLoggingEnabled(_ enabled: Bool) {
-        self.isLoggingEnabled = enabled
+        lock.withLock { _isLoggingEnabled = enabled }
     }
 
     /// 设置日志前缀
     /// - Parameter prefix: 日志前缀
     public func setLogPrefix(_ prefix: String) {
-        self.logPrefix = prefix
+        lock.withLock { _logPrefix = prefix }
     }
 
     /// 使用 print 打印日志（推荐）
@@ -392,19 +404,23 @@ public final class LSLogger: @unchecked Sendable {
         line: Int,
         useNSLog: Bool
     ) {
-        // 检查是否启用日志
-        guard isLoggingEnabled else { return }
+        // 使用锁读取共享状态
+        let isEnabled = lock.withLock { _isLoggingEnabled }
+        guard isEnabled else { return }
 
-        // 检查日志级别
-        guard level.rawValue >= currentLogLevel.rawValue else { return }
+        let currentLevel = lock.withLock { _currentLogLevel }
+        guard level.rawValue >= currentLevel.rawValue else { return }
 
         // 获取文件名（去掉路径）
         let fileName = (file as NSString).lastPathComponent
 
+        // 获取日志前缀
+        let prefix = lock.withLock { _logPrefix }
+
         // 格式化日志信息
-        let timestamp = DateFormatter.logTimestamp.string(from: Date())
+        let timestamp = LSDateFormatter.logTimestamp()
         let levelString = level.emoji
-        let logMessage = "\(timestamp) \(logPrefix) [\(fileName):\(line)] \(function) | \(message)"
+        let logMessage = "\(timestamp) \(prefix) [\(fileName):\(line)] \(function) | \(message)"
 
         if useNSLog {
             // 使用 NSLog 打印
@@ -579,11 +595,27 @@ extension LSLogLevel {
 
 // MARK: - 日期格式化扩展
 
-private extension DateFormatter {
+/// 线程安全的日期格式化
+private enum LSDateFormatter {
     /// 日志时间戳格式
-    static let logTimestamp: DateFormatter = {
+    static func logTimestamp() -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss.SSS"
-        return formatter
-    }()
+        return formatter.string(from: Date())
+    }
 }
+
+// MARK: - NSLock 扩展（Swift 5.10+ 兼容）
+
+#if !swift(>=5.10)
+extension NSLock {
+    /// 执行闭包并在完成后自动解锁
+    /// - Parameter body: 要执行的闭包
+    /// - Returns: 闭包的返回值
+    func withLock<T>(_ body: () -> T) -> T {
+        lock()
+        defer { unlock() }
+        return body()
+    }
+}
+#endif

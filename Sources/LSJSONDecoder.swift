@@ -22,10 +22,15 @@ public struct LSJSONDecoder {
         case performance      // 极致性能模式
     }
 
-    /// 当前解码模式
-    nonisolated(unsafe) public static var currentMode: DecodeMode = .codable {
-        didSet {
-            print("[LSJSONDecoder] ✅ 解码模式切换为: \(currentMode)")
+    /// 内部状态管理器（线程安全）
+    private static let stateManager = _DecoderState()
+
+    /// 当前解码模式（线程安全访问）
+    public static var currentMode: DecodeMode {
+        get { stateManager.getMode() }
+        set {
+            stateManager.setMode(newValue)
+            print("[LSJSONDecoder] ✅ 解码模式切换为: \(newValue)")
         }
     }
 
@@ -60,6 +65,22 @@ public struct LSJSONDecoder {
             print("[LSJSONDecoder] ⚠️ 数组解码失败: \(error)")
             return nil
         }
+    }
+}
+
+// MARK: - Decoder State Manager
+
+/// 解码器状态管理器（内部，线程安全）
+private final class _DecoderState {
+    private let lock = NSLock()
+    private var _currentMode: LSJSONDecoder.DecodeMode = .codable
+
+    func getMode() -> LSJSONDecoder.DecodeMode {
+        lock.withLock { _currentMode }
+    }
+
+    func setMode(_ mode: LSJSONDecoder.DecodeMode) {
+        lock.withLock { _currentMode = mode }
     }
 }
 
@@ -131,14 +152,13 @@ internal struct _LSTypeCacheInfo {
 
 extension LSJSONDecoderHP {
 
-    nonisolated(unsafe) private static var _typeCacheEnabled: Bool = true
-    nonisolated(unsafe) private static var _typeCache: [String: _LSTypeCacheInfo] = [:]
+    private static let typeCacheLock = NSLock()
+    private static var _typeCacheEnabled: Bool = true
+    private static var _typeCache: [String: _LSTypeCacheInfo] = [:]
 
     /// 获取类型缓存
     internal static func _getTypeCache(for typeName: String) -> _LSTypeCacheInfo? {
-        cacheLock.lock()
-        defer { cacheLock.unlock() }
-        return _typeCache[typeName]
+        typeCacheLock.withLock { _typeCache[typeName] }
     }
 
     /// 缓存类型信息
@@ -158,16 +178,12 @@ extension LSJSONDecoderHP {
             cached: true
         )
 
-        cacheLock.lock()
-        defer { cacheLock.unlock() }
-        _typeCache[typeName] = cacheInfo
+        typeCacheLock.withLock { _typeCache[typeName] = cacheInfo }
     }
 
     /// 清除类型缓存
     internal static func _clearTypeCache() {
-        cacheLock.lock()
-        defer { cacheLock.unlock() }
-        _typeCache.removeAll()
+        typeCacheLock.withLock { _typeCache.removeAll() }
     }
 }
 

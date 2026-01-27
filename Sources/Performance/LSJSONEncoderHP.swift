@@ -17,21 +17,28 @@ import Foundation
 /// - 缓冲区预分配
 /// - 流式编码
 /// - 类型特化处理
+/// - LRU 缓存淘汰策略
 internal final class LSJSONEncoderHP {
 
     // MARK: - Properties
 
+    /// 统一缓存锁（避免多锁死锁）
+    private static let cacheLock = NSLock()
+
     /// 编码器缓存
-    nonisolated(unsafe) private static var encoderCache: [String: Any] = [:]
+    private static var encoderCache: [String: Any] = [:]
+
+    /// 编码器缓存访问顺序（用于 LRU）
+    private static var encoderCacheAccessOrder: [String] = []
 
     /// 字符串缓冲区缓存
-    nonisolated(unsafe) private static var bufferCache: [String] = []
-
-    /// 线程安全锁
-    private static let cacheLock = NSLock()
+    private static var bufferCache: [String] = []
 
     /// 缓存大小限制
     private static let maxCacheSize = 100
+
+    /// LRU 淘汰阈值
+    private static let lruThreshold = 80
 
     // MARK: - High Performance Encode
 
@@ -83,11 +90,28 @@ internal final class LSJSONEncoderHP {
 
     /// 清除所有缓存
     internal static func clearCache() {
-        cacheLock.lock()
-        defer { cacheLock.unlock() }
+        cacheLock.withLock {
+            encoderCache.removeAll()
+            encoderCacheAccessOrder.removeAll()
+            bufferCache.removeAll()
+        }
+    }
 
-        encoderCache.removeAll()
-        bufferCache.removeAll()
+    /// LRU 缓存管理辅助方法
+    private static func manageLRUCache(forKey key: String) {
+        cacheLock.withLock {
+            // 移动到末尾（最近使用）
+            if let index = encoderCacheAccessOrder.firstIndex(of: key) {
+                encoderCacheAccessOrder.remove(at: index)
+            }
+            encoderCacheAccessOrder.append(key)
+
+            // 检查是否超过 LRU 阈值
+            while encoderCacheAccessOrder.count > lruThreshold {
+                let oldest = encoderCacheAccessOrder.removeFirst()
+                encoderCache.removeValue(forKey: oldest)
+            }
+        }
     }
 
     // MARK: - Stream Encoding
@@ -106,13 +130,13 @@ internal final class LSJSONEncoderHP {
 
 // MARK: - Performance Monitor
 
-/// 性能监控器
+/// 性能监控器（线程安全）
 internal final class LSPerformanceMonitor {
 
     // MARK: - Properties
 
-    nonisolated(unsafe) private static var metrics: [String: TimeInterval] = [:]
     private static let lock = NSLock()
+    private static var metrics: [String: TimeInterval] = [:]
 
     // MARK: - Measurement
 
@@ -127,10 +151,9 @@ internal final class LSPerformanceMonitor {
         let result = block()
         let duration = Date().timeIntervalSince(start)
 
-        lock.lock()
-        defer { lock.unlock() }
-
-        metrics[name] = (metrics[name] ?? 0) + duration
+        lock.withLock {
+            metrics[name] = (metrics[name] ?? 0) + duration
+        }
 
         #if DEBUG
         print("[Performance] \(name): \(String(format: "%.3f", duration * 1000))ms")
@@ -144,29 +167,24 @@ internal final class LSPerformanceMonitor {
     /// - Parameter name: 操作名称
     /// - Returns: 总耗时
     internal static func getDuration(for name: String) -> TimeInterval? {
-        lock.lock()
-        defer { lock.unlock() }
-        return metrics[name]
+        return lock.withLock { metrics[name] }
     }
 
     /// 重置指标
     internal static func reset() {
-        lock.lock()
-        defer { lock.unlock() }
-        metrics.removeAll()
+        lock.withLock { metrics.removeAll() }
     }
 
     /// 打印所有指标
     internal static func printMetrics() {
-        lock.lock()
-        defer { lock.unlock() }
-
-        #if DEBUG
-        print("========== Performance Metrics ==========")
-        for (name, duration) in metrics.sorted(by: { $0.value > $1.value }) {
-            print("\(name): \(String(format: "%.3f", duration * 1000))ms")
+        lock.withLock {
+            #if DEBUG
+            print("========== Performance Metrics ==========")
+            for (name, duration) in metrics.sorted(by: { $0.value > $1.value }) {
+                print("\(name): \(String(format: "%.3f", duration * 1000))ms")
+            }
+            print("=========================================")
+            #endif
         }
-        print("=========================================")
-        #endif
     }
 }

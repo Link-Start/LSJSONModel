@@ -20,32 +20,11 @@ internal final class _LSPropertyMapper {
 
     // MARK: - Properties
 
-    /// 属性元数据缓存
-    nonisolated(unsafe) private static var propertyCache: [String: [_LSPropertyMetadata]] = [:]
-
-    /// 线程安全锁
+    /// 线程安全锁（保护所有状态）
     private static let lock = NSLock()
 
-    // MARK: - Nested Types
-
-    /// 属性元数据
-    internal struct _LSPropertyMetadata {
-        let name: String
-        let type: Any.Type
-        let jsonKey: String
-        let isOptional: Bool
-        let defaultValue: Any?
-        let ignore: Bool
-
-        init(name: String, type: Any.Type, jsonKey: String, isOptional: Bool = false, defaultValue: Any? = nil, ignore: Bool = false) {
-            self.name = name
-            self.type = type
-            self.jsonKey = jsonKey
-            self.isOptional = isOptional
-            self.defaultValue = defaultValue
-            self.ignore = ignore
-        }
-    }
+    /// 属性元数据缓存
+    private static var propertyCache: [String: [_LSPropertyMetadata]] = [:]
 
     // MARK: - Property Metadata
 
@@ -86,6 +65,7 @@ internal final class _LSPropertyMapper {
         return _LSPropertyMetadata(
             name: name,
             type: type,
+            offset: 0,
             jsonKey: jsonKey
         )
     }

@@ -22,16 +22,37 @@ public struct LSJSONEncoder {
         case performance      // 极致性能模式
     }
 
-    /// 当前编码模式
-    nonisolated(unsafe) public static var currentMode: EncodeMode = .codable {
-        didSet {
-            print("[LSJSONEncoder] ✅ 编码模式切换为: \(currentMode)")
+    /// 内部状态管理器（线程安全）
+    private static let stateManager = _EncoderState()
+
+    /// 当前编码模式（线程安全访问）
+    public static var currentMode: EncodeMode {
+        get { stateManager.getMode() }
+        set {
+            stateManager.setMode(newValue)
+            print("[LSJSONEncoder] ✅ 编码模式切换为: \(newValue)")
         }
     }
 
     /// 切换编码模式
     public static func setMode(_ mode: EncodeMode) {
         currentMode = mode
+    }
+}
+
+// MARK: - Encoder State Manager
+
+/// 编码器状态管理器（内部，线程安全）
+private final class _EncoderState {
+    private let lock = NSLock()
+    private var _currentMode: LSJSONEncoder.EncodeMode = .codable
+
+    func getMode() -> LSJSONEncoder.EncodeMode {
+        lock.withLock { _currentMode }
+    }
+
+    func setMode(_ mode: LSJSONEncoder.EncodeMode) {
+        lock.withLock { _currentMode = mode }
     }
 }
 

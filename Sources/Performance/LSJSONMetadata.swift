@@ -13,7 +13,10 @@ import Foundation
 /// 属性元数据
 ///
 /// 用于描述类型的属性信息，支持高性能反射操作。
-internal struct _LSPropertyMetadata {
+///
+/// 使用 @unchecked Sendable 因为 defaultValue: Any? 不是 Sendable
+/// 但由于所有属性都是 let（不可变），整体结构是线程安全的
+internal struct _LSPropertyMetadata: @unchecked Sendable {
     /// 属性名称
     let name: String
 
@@ -26,18 +29,34 @@ internal struct _LSPropertyMetadata {
     /// 是否是可选类型
     let isOptional: Bool
 
+    /// JSON 键名（映射后的键名，默认与 name 相同）
+    let jsonKey: String
+
+    /// 默认值（用于可选属性或缺失值）
+    let defaultValue: Any?
+
+    /// 是否忽略此属性（不参与编码/解码）
+    let ignore: Bool
+
     /// 初始化属性元数据
     ///
     /// - Parameters:
     ///   - name: 属性名称
     ///   - type: 属性类型
     ///   - offset: 属性偏移量
+    ///   - jsonKey: JSON 键名（默认与 name 相同）
     ///   - isOptional: 是否是可选类型
-    init(name: String, type: Any.Type, offset: Int, isOptional: Bool = false) {
+    ///   - defaultValue: 默认值
+    ///   - ignore: 是否忽略此属性
+    init(name: String, type: Any.Type, offset: Int, jsonKey: String = "",
+         isOptional: Bool = false, defaultValue: Any? = nil, ignore: Bool = false) {
         self.name = name
         self.type = type
         self.offset = offset
+        self.jsonKey = jsonKey.isEmpty ? name : jsonKey
         self.isOptional = isOptional
+        self.defaultValue = defaultValue
+        self.ignore = ignore
     }
 }
 
@@ -48,7 +67,22 @@ extension _LSPropertyMetadata: Equatable {
         return lhs.name == rhs.name &&
                String(describing: lhs.type) == String(describing: rhs.type) &&
                lhs.offset == rhs.offset &&
-               lhs.isOptional == rhs.isOptional
+               lhs.isOptional == rhs.isOptional &&
+               lhs.jsonKey == rhs.jsonKey &&
+               _compareAnyOptionals(lhs: lhs.defaultValue, rhs: rhs.defaultValue) &&
+               lhs.ignore == rhs.ignore
+    }
+
+    /// 比较两个 Optional<Any> 值
+    private static func _compareAnyOptionals(lhs: Any?, rhs: Any?) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil):
+            return true
+        case (let l?, let r?):
+            return String(describing: l) == String(describing: r)
+        default:
+            return false
+        }
     }
 }
 
@@ -57,7 +91,9 @@ extension _LSPropertyMetadata: Equatable {
 extension _LSPropertyMetadata: CustomStringConvertible {
     var description: String {
         let optionalMark = isOptional ? "?" : ""
-        return "_LSPropertyMetadata(name: \(name), type: \(type)\(optionalMark), offset: \(offset))"
+        let ignoreMark = ignore ? " (ignored)" : ""
+        let defaultMark = defaultValue != nil ? " (default: \(defaultValue!))" : ""
+        return "_LSPropertyMetadata(name: \(name), type: \(type)\(optionalMark), jsonKey: \(jsonKey), offset: \(offset)\(defaultMark)\(ignoreMark))"
     }
 }
 
@@ -66,7 +102,7 @@ extension _LSPropertyMetadata: CustomStringConvertible {
 /// 方法缓存统计
 ///
 /// 用于追踪和报告缓存性能指标。
-internal struct MethodCacheStats {
+internal struct MethodCacheStats: Sendable {
     /// 属性缓存数量
     let propertyCacheCount: Int
 
@@ -152,7 +188,7 @@ extension MethodCacheStats: CustomStringConvertible {
 /// 类型信息
 ///
 /// 存储类型的反射信息。
-internal struct _LSTypeInfo {
+internal struct _LSTypeInfo: Sendable {
     /// 类型名称
     let typeName: String
 
@@ -233,7 +269,7 @@ internal struct _LSTypeInfo {
 /// 性能指标
 ///
 /// 用于测量和报告性能数据。
-internal struct LSPerformanceMetrics {
+internal struct LSPerformanceMetrics: Sendable {
     /// 操作名称
     let operation: String
 

@@ -18,7 +18,7 @@ import Foundation
 /// - 属性元数据缓存
 /// - 编码/解码方法缓存
 /// - 映射关系缓存
-/// - 线程安全访问
+/// - 线程安全访问（使用串行队列）
 internal final class LSJSONMethodCache {
 
     // MARK: - Singleton
@@ -28,26 +28,26 @@ internal final class LSJSONMethodCache {
 
     // MARK: - Properties
 
+    /// 串行队列，确保所有操作线程安全
+    private let cacheQueue = DispatchQueue(
+        label: "com.lsjsonmodel.cache"
+    )
+
     /// 属性元数据缓存
     /// 结构：[类型名称: [属性名: 属性元数据]]
-    private nonisolated(unsafe) var propertyCache: [String: [String: _LSPropertyMetadata]] = [:]
+    private var propertyCache: [String: [String: _LSPropertyMetadata]] = [:]
 
     /// 方法缓存
     /// 结构：[类型名称 + 方法名: 方法实现]
-    private nonisolated(unsafe) var methodCache: [String: Any] = [:]
+    private var methodCache: [String: Any] = [:]
 
     /// 映射缓存
     /// 结构：[类型名称: [属性名: JSON键]]
-    private nonisolated(unsafe) var mappingCache: [String: [String: String]] = [:]
-
-    /// 线程安全锁
-    private let propertyLock = NSLock()
-    private let methodLock = NSLock()
-    private let mappingLock = NSLock()
+    private var mappingCache: [String: [String: String]] = [:]
 
     /// 缓存统计
-    private nonisolated(unsafe) var hitCount: Int = 0
-    private nonisolated(unsafe) var missCount: Int = 0
+    private var hitCount: Int = 0
+    private var missCount: Int = 0
 
     /// 缓存大小限制
     private let maxPropertyCacheSize = 500
@@ -70,40 +70,39 @@ internal final class LSJSONMethodCache {
     ///   - propertyName: 属性名（可选）
     /// - Returns: 属性元数据数组或单个属性元数据
     internal func getProperties(for type: Any.Type, propertyName: String? = nil) -> [_LSPropertyMetadata]? {
-        let typeName = _getTypeName(type)
+        return cacheQueue.sync {
+            let typeName = _getTypeName(type)
 
-        propertyLock.lock()
-        defer { propertyLock.unlock() }
-
-        // 检查缓存
-        if let cached = propertyCache[typeName] {
-            hitCount += 1
-            if let propName = propertyName {
-                return cached[propName].map { [$0] }
+            // 检查缓存
+            if let cached = propertyCache[typeName] {
+                hitCount += 1
+                if let propName = propertyName {
+                    return cached[propName].map { [$0] }
+                }
+                return Array(cached.values)
             }
-            return Array(cached.values)
+
+            missCount += 1
+
+            // 使用反射获取属性
+            let properties = _extractProperties(from: type)
+
+            // 存入缓存
+            if propertyCache.count >= maxPropertyCacheSize {
+                _evictOldestProperties()
+            }
+
+            var propertyDict: [String: _LSPropertyMetadata] = [:]
+            for prop in properties {
+                propertyDict[prop.name] = prop
+            }
+            propertyCache[typeName] = propertyDict
+
+            if let propName = propertyName {
+                return propertyDict[propName].map { [$0] }
+            }
+            return properties
         }
-
-        missCount += 1
-
-        // 使用反射获取属性
-        let properties = _extractProperties(from: type)
-
-        // 存入缓存
-        if propertyCache.count >= maxPropertyCacheSize {
-            _evictOldestProperties()
-        }
-
-        var propertyDict: [String: _LSPropertyMetadata] = [:]
-        for prop in properties {
-            propertyDict[prop.name] = prop
-        }
-        propertyCache[typeName] = propertyDict
-
-        if let propName = propertyName {
-            return propertyDict[propName].map { [$0] }
-        }
-        return properties
     }
 
     /// 获取单个属性元数据
@@ -137,16 +136,15 @@ internal final class LSJSONMethodCache {
     internal func getEncodingMethod(for type: Any.Type, methodName: String) -> Any? {
         let key = _makeCacheKey(type: type, method: methodName)
 
-        methodLock.lock()
-        defer { methodLock.unlock() }
+        return cacheQueue.sync {
+            if let cached = methodCache[key] {
+                hitCount += 1
+                return cached
+            }
 
-        if let cached = methodCache[key] {
-            hitCount += 1
-            return cached
+            missCount += 1
+            return nil
         }
-
-        missCount += 1
-        return nil
     }
 
     /// 缓存编码方法
@@ -156,16 +154,15 @@ internal final class LSJSONMethodCache {
     ///   - methodName: 方法名
     ///   - implementation: 方法实现
     internal func cacheEncodingMethod(for type: Any.Type, methodName: String, implementation: Any) {
-        let key = _makeCacheKey(type: type, method: methodName)
+        cacheQueue.sync {
+            let key = _makeCacheKey(type: type, method: methodName)
 
-        methodLock.lock()
-        defer { methodLock.unlock() }
+            if methodCache.count >= maxMethodCacheSize {
+                _evictOldestMethods()
+            }
 
-        if methodCache.count >= maxMethodCacheSize {
-            _evictOldestMethods()
+            methodCache[key] = implementation
         }
-
-        methodCache[key] = implementation
     }
 
     /// 获取缓存的解码方法
@@ -198,12 +195,10 @@ internal final class LSJSONMethodCache {
     ///   - propertyName: 属性名
     /// - Returns: JSON 键
     internal func getMapping(for type: Any.Type, propertyName: String) -> String? {
-        let typeName = _getTypeName(type)
-
-        mappingLock.lock()
-        defer { mappingLock.unlock() }
-
-        return mappingCache[typeName]?[propertyName]
+        return cacheQueue.sync {
+            let typeName = _getTypeName(type)
+            return mappingCache[typeName]?[propertyName]
+        }
     }
 
     /// 缓存映射关系
@@ -212,69 +207,59 @@ internal final class LSJSONMethodCache {
     ///   - type: 类型
     ///   - mappings: 映射字典 [属性名: JSON键]
     internal func cacheMappings(for type: Any.Type, mappings: [String: String]) {
-        let typeName = _getTypeName(type)
+        cacheQueue.sync {
+            let typeName = _getTypeName(type)
 
-        mappingLock.lock()
-        defer { mappingLock.unlock() }
+            if mappingCache.count >= maxMappingCacheSize {
+                _evictOldestMappings()
+            }
 
-        if mappingCache.count >= maxMappingCacheSize {
-            _evictOldestMappings()
+            mappingCache[typeName] = mappings
         }
-
-        mappingCache[typeName] = mappings
     }
 
     /// 清除指定类型的映射缓存
     ///
     /// - Parameter type: 类型
     internal func removeMappings(for type: Any.Type) {
-        let typeName = _getTypeName(type)
-
-        mappingLock.lock()
-        defer { mappingLock.unlock() }
-
-        mappingCache.removeValue(forKey: typeName)
+        cacheQueue.sync {
+            let typeName = _getTypeName(type)
+            mappingCache.removeValue(forKey: typeName)
+        }
     }
 
     // MARK: - Cache Management
 
     /// 清除所有缓存
     internal func clearAll() {
-        propertyLock.lock()
-        propertyCache.removeAll()
-        propertyLock.unlock()
-
-        methodLock.lock()
-        methodCache.removeAll()
-        methodLock.unlock()
-
-        mappingLock.lock()
-        mappingCache.removeAll()
-        mappingLock.unlock()
-
-        hitCount = 0
-        missCount = 0
+        cacheQueue.sync {
+            propertyCache.removeAll()
+            methodCache.removeAll()
+            mappingCache.removeAll()
+            hitCount = 0
+            missCount = 0
+        }
     }
 
     /// 清除属性缓存
     internal func clearProperties() {
-        propertyLock.lock()
-        propertyCache.removeAll()
-        propertyLock.unlock()
+        cacheQueue.sync {
+            propertyCache.removeAll()
+        }
     }
 
     /// 清除方法缓存
     internal func clearMethods() {
-        methodLock.lock()
-        methodCache.removeAll()
-        methodLock.unlock()
+        cacheQueue.sync {
+            methodCache.removeAll()
+        }
     }
 
     /// 清除映射缓存
     internal func clearMappings() {
-        mappingLock.lock()
-        mappingCache.removeAll()
-        mappingLock.unlock()
+        cacheQueue.sync {
+            mappingCache.removeAll()
+        }
     }
 
     // MARK: - Statistics
@@ -283,40 +268,34 @@ internal final class LSJSONMethodCache {
     ///
     /// - Returns: 统计信息
     internal func getStats() -> MethodCacheStats {
-        propertyLock.lock()
-        let propertyCount = propertyCache.count
-        propertyLock.unlock()
-
-        methodLock.lock()
-        let methodCount = methodCache.count
-        methodLock.unlock()
-
-        mappingLock.lock()
-        let mappingCount = mappingCache.count
-        mappingLock.unlock()
-
-        return MethodCacheStats(
-            propertyCacheCount: propertyCount,
-            methodCacheCount: methodCount,
-            mappingCacheCount: mappingCount,
-            hitCount: hitCount,
-            missCount: missCount
-        )
+        return cacheQueue.sync {
+            MethodCacheStats(
+                propertyCacheCount: propertyCache.count,
+                methodCacheCount: methodCache.count,
+                mappingCacheCount: mappingCache.count,
+                hitCount: hitCount,
+                missCount: missCount
+            )
+        }
     }
 
     /// 获取缓存命中率
     ///
     /// - Returns: 命中率（0.0 - 1.0）
     internal func getHitRate() -> Double {
-        let total = hitCount + missCount
-        guard total > 0 else { return 0.0 }
-        return Double(hitCount) / Double(total)
+        return cacheQueue.sync {
+            let total = hitCount + missCount
+            guard total > 0 else { return 0.0 }
+            return Double(hitCount) / Double(total)
+        }
     }
 
     /// 重置统计
     internal func resetStats() {
-        hitCount = 0
-        missCount = 0
+        cacheQueue.sync {
+            hitCount = 0
+            missCount = 0
+        }
     }
 
     // MARK: - Private Helpers
@@ -333,11 +312,10 @@ internal final class LSJSONMethodCache {
 
     /// 从类型提取属性
     private func _extractProperties(from type: Any.Type) -> [_LSPropertyMetadata] {
-        var properties: [_LSPropertyMetadata] = []
-
         // 简化实现：返回空数组
         // 实际属性提取由 LSJSONDecoderHP 处理
         // 这里仅作为占位符
+        let properties: [_LSPropertyMetadata] = []
 
         return properties
     }

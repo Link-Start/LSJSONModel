@@ -21,15 +21,14 @@ internal final class LSJSONDecoderHP {
 
     // MARK: - Properties
 
+    /// 统一缓存锁（避免多锁死锁）
+    private static let cacheLock = NSLock()
+
     /// 解码器缓存
-    nonisolated(unsafe) private static var decoderCache: [String: Any] = [:]
+    private static var decoderCache: [String: Any] = [:]
 
     /// JSON 解析缓存
-    nonisolated(unsafe) private static var jsonCache: [String: [String: Any]] = [:]
-
-    /// 线程安全锁
-    internal static let cacheLock = NSLock()
-    private static let jsonLock = NSLock()
+    private static var jsonCache: [String: [String: Any]] = [:]
 
     /// 缓存大小限制
     private static let maxCacheSize = 100
@@ -61,14 +60,12 @@ internal final class LSJSONDecoderHP {
     /// - Returns: 解码后的对象
     internal static func decode<T>(_ jsonString: String, as type: T.Type) -> T? where T: Decodable {
         // 检查 JSON 字符串缓存
-        jsonLock.lock()
         let cacheKey = jsonString
-        if let cachedDict = jsonCache[cacheKey] {
-            jsonLock.unlock()
+        let cachedDict = cacheLock.withLock { jsonCache[cacheKey] }
+        if let cachedDict = cachedDict {
             // 使用缓存的字典解码
             return decodeFromDictionary(cachedDict, as: type)
         }
-        jsonLock.unlock()
 
         // 解析 JSON
         guard let data = jsonString.data(using: .utf8),
@@ -102,30 +99,25 @@ internal final class LSJSONDecoderHP {
 
     /// 缓存 JSON 解析结果
     private static func cacheJSON(_ jsonString: String, as jsonObject: [String: Any]) {
-        jsonLock.lock()
-        defer { jsonLock.unlock() }
-
-        // 如果缓存已满，清除一半
-        if jsonCache.count >= maxCacheSize {
-            let keysToRemove = Array(jsonCache.keys.prefix(maxCacheSize / 2))
-            for key in keysToRemove {
-                jsonCache.removeValue(forKey: key)
+        cacheLock.withLock {
+            // 如果缓存已满，清除一半
+            if jsonCache.count >= maxCacheSize {
+                let keysToRemove = Array(jsonCache.keys.prefix(maxCacheSize / 2))
+                for key in keysToRemove {
+                    jsonCache.removeValue(forKey: key)
+                }
             }
-        }
 
-        jsonCache[jsonString] = jsonObject
+            jsonCache[jsonString] = jsonObject
+        }
     }
 
     /// 清除所有缓存
     internal static func clearCache() {
-        // 分离锁操作，避免死锁
-        cacheLock.lock()
-        decoderCache.removeAll()
-        cacheLock.unlock()
-
-        jsonLock.lock()
-        jsonCache.removeAll()
-        jsonLock.unlock()
+        cacheLock.withLock {
+            decoderCache.removeAll()
+            jsonCache.removeAll()
+        }
     }
 
     // MARK: - Reflection Helpers
@@ -175,10 +167,8 @@ internal final class LSJSONDecoderHP {
         var properties: [_LSPropertyMetadata] = []
 
         // 对于 Codable 类型，尝试使用 CodingKeys
-        if let codableType = type as? Codable.Type {
-            // 通过 CodingKeys 获取属性信息
-            // 这需要类型实例，所以我们提供一个备用方案
-        }
+        // 通过 CodingKeys 获取属性信息
+        // 这需要类型实例，所以我们提供一个备用方案
 
         // 使用 Mirror 反射获取类型信息
         // 注意：对于纯类型，我们需要获取其元类型
@@ -233,7 +223,12 @@ internal final class LSJSONDecoderHP {
     // MARK: - Performance Optimization
 
     /// 启用缓存（默认启用）
-    internal static var cacheEnabled: Bool = true
+    internal static var cacheEnabled: Bool {
+        get { cacheLock.withLock { _cacheEnabled } }
+        set { cacheLock.withLock { _cacheEnabled = newValue } }
+    }
+
+    private static var _cacheEnabled: Bool = true
 
     /// 获取缓存统计
     ///

@@ -31,7 +31,7 @@ public final class LSJSONMapping {
     // MARK: - Nested Types
 
     /// 映射优先级
-    public enum MappingPriority: Int {
+    public enum MappingPriority: Int, Sendable {
         case type = 3           // 类型级映射（最高优先级）
         case global = 2         // 全局映射
         case snakeCase = 1      // Snake Case 转换
@@ -39,7 +39,7 @@ public final class LSJSONMapping {
     }
 
     /// 映射元数据
-    internal struct MappingMetadata {
+    internal struct MappingMetadata: Sendable {
         let jsonKey: String
         let priority: MappingPriority
         let source: String      // 映射来源（用于调试）
@@ -53,17 +53,17 @@ public final class LSJSONMapping {
 
     // MARK: - Properties
 
+    /// 线程安全锁（保护所有映射状态）
+    private static let lock = NSLock()
+
     /// 全局映射配置 - 属性名 -> JSON 键
-    nonisolated(unsafe) private static var globalMapping: [String: String] = [:]
+    private static var globalMapping: [String: String] = [:]
 
     /// 类型级映射配置 - 类型名称 -> [属性名: JSON 键]
-    nonisolated(unsafe) private static var typeMapping: [String: [String: String]] = [:]
+    private static var typeMapping: [String: [String: String]] = [:]
 
     /// Snake Case 标记 - 启用 Snake Case 的类型集合
-    nonisolated(unsafe) internal static var snakeCaseTypes: Set<String> = []
-
-    /// 线程安全锁
-    private static let lock = NSLock()
+    internal static var snakeCaseTypes: Set<String> = Set()
 
     // MARK: - Global Mapping
 
@@ -79,10 +79,9 @@ public final class LSJSONMapping {
     /// ])
     /// ```
     public static func ls_setGlobalMapping(_ mapping: [String: String]) {
-        lock.lock()
-        defer { lock.unlock() }
-
-        globalMapping = mapping
+        lock.withLock {
+            globalMapping = mapping
+        }
 
         #if DEBUG
         print("[LSJSONMapping] ✅ 全局映射已设置: \(mapping)")
@@ -94,10 +93,9 @@ public final class LSJSONMapping {
 
     /// 添加全局属性名映射
     public static func ls_addGlobalMapping(_ mapping: [String: String]) {
-        lock.lock()
-        defer { lock.unlock() }
-
-        globalMapping.merge(mapping) { _, new in new }
+        lock.withLock {
+            globalMapping.merge(mapping) { _, new in new }
+        }
 
         #if DEBUG
         print("[LSJSONMapping] ✅ 添加全局映射: \(mapping)")
@@ -108,17 +106,14 @@ public final class LSJSONMapping {
 
     /// 获取全局映射配置
     public static func ls_getGlobalMapping() -> [String: String] {
-        lock.lock()
-        defer { lock.unlock() }
-        return globalMapping
+        return lock.withLock { globalMapping }
     }
 
     /// 清除全局映射
     public static func ls_clearGlobalMapping() {
-        lock.lock()
-        defer { lock.unlock() }
-
-        globalMapping.removeAll()
+        lock.withLock {
+            globalMapping.removeAll()
+        }
 
         #if DEBUG
         print("[LSJSONMapping] ✅ 全局映射已清除")
@@ -139,11 +134,11 @@ public final class LSJSONMapping {
     /// ])
     /// ```
     public static func ls_registerMapping<T>(for type: T.Type, mapping: [String: String]) {
-        lock.lock()
-        defer { lock.unlock() }
-
         let typeName = String(describing: type)
-        typeMapping[typeName] = mapping
+
+        lock.withLock {
+            typeMapping[typeName] = mapping
+        }
 
         #if DEBUG
         print("[LSJSONMapping] ✅ 注册类型映射 [\(typeName)]: \(mapping)")
@@ -155,12 +150,11 @@ public final class LSJSONMapping {
 
     /// 批量注册类型映射
     public static func ls_registerMappings(_ mappings: [(Any.Type, [String: String])]) {
-        lock.lock()
-        defer { lock.unlock() }
-
-        for (type, mapping) in mappings {
-            let typeName = String(describing: type)
-            typeMapping[typeName] = mapping
+        lock.withLock {
+            for (type, mapping) in mappings {
+                let typeName = String(describing: type)
+                typeMapping[typeName] = mapping
+            }
         }
 
         #if DEBUG
@@ -172,29 +166,32 @@ public final class LSJSONMapping {
 
     /// 获取类型的映射配置
     public static func ls_getMapping(for type: Any.Type) -> [String: String] {
-        lock.lock()
-        defer { lock.unlock() }
-
         let typeName = String(describing: type)
 
         // 检查类型是否实现了 LSJSONMappingProvider
         if let provider = type as? LSJSONMappingProvider.Type {
             let mapping = provider.ls_mappingKeys()
+
             // 缓存到 typeMapping 中
-            typeMapping[typeName] = mapping
+            lock.withLock {
+                typeMapping[typeName] = mapping
+            }
+
             return mapping
         }
 
-        return typeMapping[typeName] ?? [:]
+        return lock.withLock {
+            typeMapping[typeName] ?? [:]
+        }
     }
 
     /// 清除特定类型的映射
     public static func ls_clearMapping(for type: Any.Type) {
-        lock.lock()
-        defer { lock.unlock() }
-
         let typeName = String(describing: type)
-        typeMapping.removeValue(forKey: typeName)
+
+        _ = lock.withLock {
+            typeMapping.removeValue(forKey: typeName)
+        }
 
         #if DEBUG
         print("[LSJSONMapping] ✅ 清除类型映射: \(typeName)")
@@ -205,11 +202,11 @@ public final class LSJSONMapping {
 
     /// 标记类型使用 Snake Case（内部使用）
     internal static func ls_markSnakeCase<T>(for type: T.Type) {
-        lock.lock()
-        defer { lock.unlock() }
-
         let typeName = String(describing: type)
-        snakeCaseTypes.insert(typeName)
+
+        _ = lock.withLock {
+            snakeCaseTypes.insert(typeName)
+        }
 
         #if DEBUG
         print("[LSJSONMapping] ✅ 标记 Snake Case: \(typeName)")
@@ -218,11 +215,10 @@ public final class LSJSONMapping {
 
     /// 检查类型是否使用 Snake Case
     internal static func ls_isSnakeCase<T>(for type: T.Type) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-
         let typeName = String(describing: type)
-        return snakeCaseTypes.contains(typeName)
+        return lock.withLock {
+            snakeCaseTypes.contains(typeName)
+        }
     }
 
     // MARK: - Unified Mapping Query (Core Methods)
@@ -248,33 +244,29 @@ public final class LSJSONMapping {
             return cached
         }
 
-        lock.lock()
-        defer { lock.unlock() }
+        // 2. 使用锁获取映射信息
+        let metadata = lock.withLock {
+            // 2.1 最高优先级：类型级映射
+            if let typeJsonKey = typeMapping[typeName]?[propertyName] {
+                return MappingMetadata(jsonKey: typeJsonKey, priority: .type, source: "type")
+            }
 
-        // 2. 最高优先级：类型级映射
-        if let typeJsonKey = typeMapping[typeName]?[propertyName] {
-            let metadata = MappingMetadata(jsonKey: typeJsonKey, priority: .type, source: "type")
-            _LSJSONMappingCache.setMapping(for: typeName, property: propertyName, metadata: metadata)
-            return metadata
+            // 2.2 全局映射
+            if let globalJsonKey = globalMapping[propertyName] {
+                return MappingMetadata(jsonKey: globalJsonKey, priority: .global, source: "global")
+            }
+
+            // 2.3 Snake Case 转换
+            if snakeCaseTypes.contains(typeName) {
+                let snakeCaseKey = _toSnakeCase(propertyName)
+                return MappingMetadata(jsonKey: snakeCaseKey, priority: .snakeCase, source: "snake_case")
+            }
+
+            // 2.4 默认映射（使用属性名本身）
+            return MappingMetadata(jsonKey: propertyName, priority: .default, source: "default")
         }
 
-        // 3. 全局映射
-        if let globalJsonKey = globalMapping[propertyName] {
-            let metadata = MappingMetadata(jsonKey: globalJsonKey, priority: .global, source: "global")
-            _LSJSONMappingCache.setMapping(for: typeName, property: propertyName, metadata: metadata)
-            return metadata
-        }
-
-        // 4. Snake Case 转换
-        if snakeCaseTypes.contains(typeName) {
-            let snakeCaseKey = _toSnakeCase(propertyName)
-            let metadata = MappingMetadata(jsonKey: snakeCaseKey, priority: .snakeCase, source: "snake_case")
-            _LSJSONMappingCache.setMapping(for: typeName, property: propertyName, metadata: metadata)
-            return metadata
-        }
-
-        // 5. 默认映射（使用属性名本身）
-        let metadata = MappingMetadata(jsonKey: propertyName, priority: .default, source: "default")
+        // 3. 缓存结果
         _LSJSONMappingCache.setMapping(for: typeName, property: propertyName, metadata: metadata)
         return metadata
     }
@@ -288,35 +280,36 @@ public final class LSJSONMapping {
             return cached
         }
 
-        lock.lock()
-        defer { lock.unlock() }
+        // 使用锁进行反向查找
+        let propertyName = lock.withLock {
+            // 1. 检查类型映射（反向查找）
+            if let typeMappings = typeMapping[typeName] {
+                for (prop, key) in typeMappings where key == jsonKey {
+                    return prop
+                }
+            }
 
-        // 1. 检查类型映射（反向查找）
-        if let typeMappings = typeMapping[typeName] {
-            for (prop, key) in typeMappings where key == jsonKey {
-                _LSJSONMappingCache.setReverseMapping(for: typeName, jsonKey: jsonKey, property: prop)
+            // 2. 检查全局映射（反向查找）
+            for (prop, key) in globalMapping where key == jsonKey {
                 return prop
             }
-        }
 
-        // 2. 检查全局映射（反向查找）
-        for (prop, key) in globalMapping where key == jsonKey {
-            _LSJSONMappingCache.setReverseMapping(for: typeName, jsonKey: jsonKey, property: prop)
-            return prop
-        }
-
-        // 3. 检查 Snake Case 转换
-        if snakeCaseTypes.contains(typeName) {
-            let camelCase = _toCamelCase(jsonKey)
-            // 验证这个 camelCase 转回 snake_case 是否匹配
-            if _toSnakeCase(camelCase) == jsonKey {
-                _LSJSONMappingCache.setReverseMapping(for: typeName, jsonKey: jsonKey, property: camelCase)
-                return camelCase
+            // 3. 检查 Snake Case 转换
+            if snakeCaseTypes.contains(typeName) {
+                let camelCase = _toCamelCase(jsonKey)
+                // 验证这个 camelCase 转回 snake_case 是否匹配
+                if _toSnakeCase(camelCase) == jsonKey {
+                    return camelCase
+                }
             }
+
+            // 4. 默认返回 JSON 键本身
+            return jsonKey
         }
 
-        // 4. 默认返回 JSON 键本身
-        return jsonKey
+        // 缓存反向映射
+        _LSJSONMappingCache.setReverseMapping(for: typeName, jsonKey: jsonKey, property: propertyName)
+        return propertyName
     }
 
     // MARK: - Cross Model Conversion

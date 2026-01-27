@@ -19,7 +19,7 @@ internal final class _LSJSONMappingCache {
     // MARK: - Nested Types
 
     /// 缓存统计信息
-    internal struct CacheStats {
+    internal struct CacheStats: Sendable {
         var typeMappingCount: Int
         var reverseMappingCount: Int
         var hitCount: Int
@@ -33,27 +33,27 @@ internal final class _LSJSONMappingCache {
 
     // MARK: - Properties
 
+    /// 线程安全锁（保护所有缓存状态）
+    private static let lock = NSLock()
+
     /// 类型映射缓存
     /// Key: "TypeName.propertyName", Value: MappingMetadata
-    nonisolated(unsafe) private static var typeMappingCache: [String: LSJSONMapping.MappingMetadata] = [:]
+    private static var typeMappingCache: [String: LSJSONMapping.MappingMetadata] = [:]
 
     /// 反向映射缓存（JSON键 -> 属性名）
     /// Key: "TypeName.jsonKey", Value: propertyName
-    nonisolated(unsafe) private static var reverseMappingCache: [String: String] = [:]
+    private static var reverseMappingCache: [String: String] = [:]
 
     /// 缓存统计
-    nonisolated(unsafe) private static var stats = CacheStats(
+    private static var stats = CacheStats(
         typeMappingCount: 0,
         reverseMappingCount: 0,
         hitCount: 0,
         missCount: 0
     )
 
-    /// 线程安全锁
-    private static let lock = NSLock()
-
     /// 缓存启用标志
-    nonisolated(unsafe) private static var cacheEnabled = true
+    private static var cacheEnabled = true
 
     // MARK: - Type Mapping Cache
 
