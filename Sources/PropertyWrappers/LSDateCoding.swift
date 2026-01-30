@@ -49,7 +49,9 @@ public struct LSDateCoding {
     /// - Parameter format: 日期格式
     public init(_ format: DateFormat) {
         self.format = format
-        self._storage = Date()
+        // 使用 1970-01-01 作为默认值，而不是当前时间
+        // 这样更符合预期，避免每次创建实例时都使用不同的默认值
+        self._storage = Date(timeIntervalSince1970: 0)
     }
 
     /// 便捷初始化：使用自定义格式字符串
@@ -57,7 +59,7 @@ public struct LSDateCoding {
     /// - Parameter formatString: 自定义格式字符串
     public init(_ formatString: String) {
         self.format = .custom(formatString)
-        self._storage = Date()
+        self._storage = Date(timeIntervalSince1970: 0)
     }
 }
 

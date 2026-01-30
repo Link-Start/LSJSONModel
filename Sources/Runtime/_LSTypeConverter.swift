@@ -5,6 +5,8 @@
 //  Created by link-start on 2026-01-24.
 //  Copyright © 2026 link-start. All rights reserved.
 //
+//  Swift 6 严格并发模式重构版本
+//
 
 import Foundation
 
@@ -55,7 +57,7 @@ internal final class _LSTypeConverter {
 
     // MARK: - Private Helpers
 
-    /// 将对象转换为字典
+    /// 将对象转换为字典（移除 OptionalProtocol，使用 Mirror）
     ///
     /// - Parameter object: 输入对象
     /// - Returns: 字典表示，失败返回 nil
@@ -77,20 +79,36 @@ internal final class _LSTypeConverter {
         for child in mirror.children {
             guard let label = child.label else { continue }
 
-            // 处理可选值
-            let value: Any?
-            if let optional = child.value as? OptionalProtocol {
-                value = optional.isNil ? nil : optional.wrappedValue
-            } else {
-                value = child.value
-            }
+            // 使用 Mirror 检查是否为可选值
+            let value = _unwrapOptional(child.value)
 
+            // 只添加非 nil 值
             if let unwrappedValue = value {
                 dict[label] = unwrappedValue
             }
         }
 
         return dict.isEmpty ? nil : dict
+    }
+
+    /// 解包可选值（不使用 OptionalProtocol）
+    ///
+    /// - Parameter value: 输入值
+    /// - Returns: 解包后的值，如果是非可选值则返回原值
+    private static func _unwrapOptional(_ value: Any) -> Any? {
+        // 使用 Mirror 检查是否为 Optional
+        let mirror = Mirror(reflecting: value)
+        if mirror.displayStyle == .optional {
+            // Optional 类型，检查是否有值
+            // 通过检查 children 来判断
+            if mirror.children.isEmpty {
+                return nil  // Optional.none
+            } else {
+                // Optional.some，获取值
+                return mirror.children.first?.value
+            }
+        }
+        return value
     }
 
     /// 应用属性映射（从源类型到目标类型）
@@ -115,7 +133,6 @@ internal final class _LSTypeConverter {
                 result[sourceKey] = sourceValue
             } else {
                 // 尝试通过映射查找
-                // 检查源类型的这个属性在目标类型中的对应属性
                 let destPropertyName = _findDestinationProperty(for: sourceKey, sourceType: sourceType, destinationType: destinationType)
 
                 if let destProp = destPropertyName {
@@ -169,36 +186,16 @@ internal final class _LSTypeConverter {
             }
 
             // 使用 JSONDecoder 解码
-            if let decoded = try? JSONDecoder().decode(decodableType, from: jsonData) {
-                return decoded as? T
-            }
-        }
-
-        // 使用反射尝试创建实例并设置属性
-        // 这对于 struct 和 class 都适用
-        return _createInstance(dictionary, as: type)
-    }
-
-    /// 使用反射创建实例并设置属性
-    ///
-    /// - Parameters:
-    ///   - dictionary: 属性字典
-    ///   - type: 目标类型
-    /// - Returns: 创建的实例
-    private static func _createInstance<T>(_ dictionary: [String: Any], as type: T.Type) -> T? {
-        // 对于大多数情况，需要类型支持自定义初始化
-        // 这里提供一个基础实现
-
-        // 检查 T 是否遵循 Decodable
-        if let decodableType = type as? Decodable.Type {
-            // 尝试使用 Codable 扩展方法
-            if let data = try? JSONSerialization.data(withJSONObject: dictionary) {
-                do {
-                    let decoder = JSONDecoder()
-                    return try decoder.decode(decodableType, from: data) as? T
-                } catch {
-                    return nil
-                }
+            do {
+                let decoder = JSONDecoder()
+                decoder.dateDecodingStrategy = .iso8601
+                let result = try decoder.decode(decodableType, from: jsonData)
+                return result as? T
+            } catch {
+                #if DEBUG
+                print("[LSTypeConverter] 解码失败: \(error)")
+                #endif
+                return nil
             }
         }
 
@@ -213,8 +210,6 @@ internal final class _LSTypeConverter {
         var names: Set<String> = []
 
         // 使用 Mirror 获取属性
-        // 注意：对于 struct，需要实例才能获取属性
-        // 这里使用类型信息的 Mirror
         let mirror = Mirror(reflecting: type)
         for child in mirror.children {
             if let label = child.label {
@@ -223,25 +218,5 @@ internal final class _LSTypeConverter {
         }
 
         return names
-    }
-}
-
-// MARK: - Optional Protocol
-
-/// 用于检查可选值的协议
-private protocol OptionalProtocol {
-    var isNil: Bool { get }
-    var wrappedValue: Any? { get }
-}
-
-extension Optional: OptionalProtocol {
-    var isNil: Bool { self == nil }
-    var wrappedValue: Any? {
-        switch self {
-        case .some(let value):
-            return value
-        case .none:
-            return nil
-        }
     }
 }

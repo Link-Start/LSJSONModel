@@ -50,14 +50,14 @@ playground.xcworkspace
 
 # CocoaPods
 #
-# We recommend against adding the Pods directory to your .gitignore. However
+# We recommend against adding the Pods directory to your gitignore. However
 # you should judge for yourself, the pros and cons are mentioned at:
 # https://guides.cocoapods.org/using/using-cocoapods.html#should-i-check-the-pods-directory-into-source-control
 #
-# Pods/
+Pods/
 #
 # Add this line if you want to avoid checking in source code from the Xcode workspace
-# *.xcworkspace
+*.xcworkspace
 
 # Carthage
 #
@@ -94,3 +94,58 @@ iOSInjectionProject/
 
 # Swift Package Manager
 Package.resolved
+
+# ==================== LSJSONModel 特定忽略规则 ====================
+
+# 开发工具和配置
+.claude/
+.ralph/
+
+# 文档和说明（只保留 README.md 和 LICENSE）
+AGENTS.md
+CLAUDE.md
+LSJSONModel_Design.md
+
+# Sources 目录中的文档（只保留必要的 API 文档）
+Sources/Docs/
+
+# 测试和示例
+Example/
+Examples/
+
+# Python 脚本
+*.py
+
+# Xcode 和构建产物
+.xcodeproj/
+.xcworkspace/
+*.xcuserdata
+*.xcscheme
+*.xcuserstate
+*.xcuserdatad
+
+# Swift Package Manager build artifacts
+.swiftpm/
+.build/
+.checkout/
+
+# 临时文件
+*.swp
+*.swo
+*~.nib
+*.moved-aside
+IDETemplateMacros.plist
+*.gcov
+
+# CocoaPods
+Pods/
+
+# ==================== 必要的库文件 ====================
+# 以下文件应该保留在 git 中：
+# - README.md (项目说明)
+# - LICENSE (许可证)
+# - Package.swift (SPM 配置)
+# - LSJSONModel.podspec (CocoaPods 配置)
+# - Podfile (依赖配置)
+# - Sources/ (所有源代码文件)
+# - Tests/ (测试文件)

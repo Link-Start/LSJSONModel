@@ -8,20 +8,70 @@
 
 import Foundation
 
+// MARK: - LSPropertyValue
+
+/// 属性默认值包装器
+///
+/// 用于存储类型安全的默认值，替代 Any? 实现 Sendable
+internal enum LSPropertyValue: Sendable, Equatable {
+    case string(String)
+    case int(Int)
+    case double(Double)
+    case bool(Bool)
+    case null
+
+    /// 从 Any? 创建 LSPropertyValue
+    static func from(_ value: Any?) -> LSPropertyValue {
+        guard let value = value else { return .null }
+
+        switch value {
+        case let v as String:
+            return .string(v)
+        case let v as Int:
+            return .int(v)
+        case let v as Double:
+            return .double(v)
+        case let v as Bool:
+            return .bool(v)
+        default:
+            // 其他类型转换为字符串表示
+            return .string(String(describing: value))
+        }
+    }
+
+    /// 转换回指定类型
+    func convert<T>(to type: T.Type) -> T? {
+        switch self {
+        case .string(let v):
+            return v as? T
+        case .int(let v):
+            return v as? T
+        case .double(let v):
+            return v as? T
+        case .bool(let v):
+            return v as? T
+        case .null:
+            return nil
+        }
+    }
+}
+
 // MARK: - LSPropertyMetadata
 
 /// 属性元数据
 ///
 /// 用于描述类型的属性信息，支持高性能反射操作。
 ///
-/// 使用 @unchecked Sendable 因为 defaultValue: Any? 不是 Sendable
-/// 但由于所有属性都是 let（不可变），整体结构是线程安全的
-internal struct _LSPropertyMetadata: @unchecked Sendable {
+/// 完全符合 Swift 6 Sendable 标准：
+/// - 使用类型名称字符串代替 Any.Type（避免非 Sendable 类型）
+/// - 使用 LSPropertyValue 替代 Any?（确保类型安全）
+/// - 所有属性都是 let 不可变
+internal struct _LSPropertyMetadata: Sendable {
     /// 属性名称
     let name: String
 
-    /// 属性类型
-    let type: Any.Type
+    /// 属性类型名称（使用字符串代替 Any.Type 以符合 Sendable）
+    let typeName: String
 
     /// 属性偏移量（用于直接内存访问）
     let offset: Int
@@ -32,8 +82,8 @@ internal struct _LSPropertyMetadata: @unchecked Sendable {
     /// JSON 键名（映射后的键名，默认与 name 相同）
     let jsonKey: String
 
-    /// 默认值（用于可选属性或缺失值）
-    let defaultValue: Any?
+    /// 默认值（使用类型安全的包装器）
+    let defaultValue: LSPropertyValue
 
     /// 是否忽略此属性（不参与编码/解码）
     let ignore: Bool
@@ -51,11 +101,12 @@ internal struct _LSPropertyMetadata: @unchecked Sendable {
     init(name: String, type: Any.Type, offset: Int, jsonKey: String = "",
          isOptional: Bool = false, defaultValue: Any? = nil, ignore: Bool = false) {
         self.name = name
-        self.type = type
+        // 将 Any.Type 转换为字符串，避免存储非 Sendable 类型
+        self.typeName = String(describing: type)
         self.offset = offset
         self.jsonKey = jsonKey.isEmpty ? name : jsonKey
         self.isOptional = isOptional
-        self.defaultValue = defaultValue
+        self.defaultValue = LSPropertyValue.from(defaultValue)
         self.ignore = ignore
     }
 }
@@ -65,24 +116,12 @@ internal struct _LSPropertyMetadata: @unchecked Sendable {
 extension _LSPropertyMetadata: Equatable {
     static func == (lhs: _LSPropertyMetadata, rhs: _LSPropertyMetadata) -> Bool {
         return lhs.name == rhs.name &&
-               String(describing: lhs.type) == String(describing: rhs.type) &&
+               lhs.typeName == rhs.typeName &&
                lhs.offset == rhs.offset &&
                lhs.isOptional == rhs.isOptional &&
                lhs.jsonKey == rhs.jsonKey &&
-               _compareAnyOptionals(lhs: lhs.defaultValue, rhs: rhs.defaultValue) &&
+               lhs.defaultValue == rhs.defaultValue &&
                lhs.ignore == rhs.ignore
-    }
-
-    /// 比较两个 Optional<Any> 值
-    private static func _compareAnyOptionals(lhs: Any?, rhs: Any?) -> Bool {
-        switch (lhs, rhs) {
-        case (nil, nil):
-            return true
-        case (let l?, let r?):
-            return String(describing: l) == String(describing: r)
-        default:
-            return false
-        }
     }
 }
 
@@ -92,8 +131,14 @@ extension _LSPropertyMetadata: CustomStringConvertible {
     var description: String {
         let optionalMark = isOptional ? "?" : ""
         let ignoreMark = ignore ? " (ignored)" : ""
-        let defaultMark = defaultValue != nil ? " (default: \(defaultValue!))" : ""
-        return "_LSPropertyMetadata(name: \(name), type: \(type)\(optionalMark), jsonKey: \(jsonKey), offset: \(offset)\(defaultMark)\(ignoreMark))"
+        let defaultMark: String
+        switch defaultValue {
+        case .null:
+            defaultMark = ""
+        default:
+            defaultMark = " (default: \(defaultValue))"
+        }
+        return "_LSPropertyMetadata(name: \(name), type: \(typeName)\(optionalMark), jsonKey: \(jsonKey), offset: \(offset)\(defaultMark)\(ignoreMark))"
     }
 }
 

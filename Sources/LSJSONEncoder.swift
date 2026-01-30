@@ -38,6 +38,53 @@ public struct LSJSONEncoder {
     public static func setMode(_ mode: EncodeMode) {
         currentMode = mode
     }
+
+    // MARK: - Result API
+
+    /// 编码为 JSON 字符串（Result 类型）
+    public static func encodeForResult<T: Encodable>(_ value: T) -> Result<String, LSJSONError> {
+        do {
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            let data = try encoder.encode(value)
+            if let string = String(data: data, encoding: .utf8) {
+                return .success(string)
+            } else {
+                return .failure(.invalidJSONData)
+            }
+        } catch {
+            return .failure(.encodingFailed(error))
+        }
+    }
+
+    /// 编码为 JSON 数据（Result 类型）
+    public static func encodeToDataForResult<T: Encodable>(_ value: T) -> Result<Data, LSJSONError> {
+        do {
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            return .success(try encoder.encode(value))
+        } catch {
+            return .failure(.encodingFailed(error))
+        }
+    }
+
+    /// 编码为字典（Result 类型）
+    public static func encodeToDictionaryForResult<T: Encodable>(_ value: T) -> Result<[String: Any], LSJSONError> {
+        switch encodeToDataForResult(value) {
+        case .success(let data):
+            do {
+                if let dict = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] {
+                    return .success(dict)
+                } else {
+                    return .failure(.serializationFailed(value))
+                }
+            } catch {
+                return .failure(.serializationFailed(value))
+            }
+        case .failure(let error):
+            return .failure(error)
+        }
+    }
 }
 
 // MARK: - Encoder State Manager

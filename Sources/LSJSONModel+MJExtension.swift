@@ -20,9 +20,40 @@ public enum LSJSONModelMJExtension {
 
     // MARK: - 单个对象转换
 
-    /// 从字典/JSON 字符串/JSON 数据创建对象
+    /// 从字典创建对象（类型安全版本）
     ///
     /// 对应 MJExtension: `mj_objectWithKeyValues:`
+    ///
+    /// ```swift
+    /// let user = User.ls_objectWithKeyValues(["id": "123", "name": "张三"])
+    /// ```
+    public static func ls_objectWithKeyValues<T: Decodable>(_ keyValues: [String: Any]) -> T? {
+        return T.ls_decodeFromDictionary(keyValues)
+    }
+
+    /// 从 JSON 字符串创建对象（类型安全版本）
+    ///
+    /// ```swift
+    /// let user = User.ls_objectWithKeyValues("{\"id\":\"123\"}")
+    /// ```
+    public static func ls_objectWithKeyValues<T: Decodable>(_ keyValues: String) -> T? {
+        return T.ls_decode(keyValues)
+    }
+
+    /// 从 JSON 数据创建对象（类型安全版本）
+    ///
+    /// ```swift
+    /// let user = User.ls_objectWithKeyValues(jsonData)
+    /// ```
+    public static func ls_objectWithKeyValues<T: Decodable>(_ keyValues: Data) -> T? {
+        return T.ls_decodeFromJSONData(keyValues)
+    }
+
+    /// 从字典/JSON 字符串/JSON 数据创建对象（便捷版本）
+    ///
+    /// 对应 MJExtension: `mj_objectWithKeyValues:`
+    ///
+    /// 警告：使用 Any 类型会失去类型安全，建议使用类型安全的重载版本。
     ///
     /// ```swift
     /// // 从字典
@@ -34,6 +65,7 @@ public enum LSJSONModelMJExtension {
     /// // 从 JSON 数据
     /// let user = User.ls_objectWithKeyValues(jsonData)
     /// ```
+    @available(*, deprecated, message: "使用类型安全的重载版本: ls_objectWithKeyValues([String: Any]) 或 ls_objectWithKeyValues(String)")
     public static func ls_objectWithKeyValues<T: Decodable>(_ keyValues: Any) -> T? {
         switch keyValues {
         case let dict as [String: Any]:
@@ -63,13 +95,45 @@ public enum LSJSONModelMJExtension {
 
     // MARK: - 数组转换
 
-    /// 从字典数组创建对象数组
+    /// 从字典数组创建对象数组（类型安全版本）
     ///
     /// 对应 MJExtension: `mj_objectArrayWithKeyValuesArray:`
     ///
     /// ```swift
     /// let users = User.ls_objectArrayWithKeyValuesArray([["id": "1"], ["id": "2"]])
     /// ```
+    public static func ls_objectArrayWithKeyValuesArray<T: Decodable>(_ keyValuesArray: [[String: Any]]) -> [T] {
+        return keyValuesArray.compactMap { T.ls_decodeFromDictionary($0) }
+    }
+
+    /// 从 JSON 字符串数组创建对象数组
+    ///
+    /// ```swift
+    /// let users = User.ls_objectArrayWithKeyValuesArray("[{\"id\":\"1\"}]")
+    /// ```
+    public static func ls_objectArrayWithKeyValuesArray<T: Decodable>(_ keyValuesArray: String) -> [T] {
+        return T.ls_decodeArrayFromJSON(keyValuesArray) ?? []
+    }
+
+    /// 从 JSON 数据数组创建对象数组
+    ///
+    /// ```swift
+    /// let users = User.ls_objectArrayWithKeyValuesArray(jsonArrayData)
+    /// ```
+    public static func ls_objectArrayWithKeyValuesArray<T: Decodable>(_ keyValuesArray: Data) -> [T] {
+        // 尝试解析 JSON 数组
+        if let array = (try? JSONSerialization.jsonObject(with: keyValuesArray)) as? [[String: Any]] {
+            return array.compactMap { T.ls_decodeFromDictionary($0) }
+        }
+        return []
+    }
+
+    /// 从字典数组/JSON 字符串/JSON 数据创建对象数组（便捷版本）
+    ///
+    /// 对应 MJExtension: `mj_objectArrayWithKeyValuesArray:`
+    ///
+    /// 警告：使用 Any 类型会失去类型安全，建议使用类型安全的重载版本。
+    @available(*, deprecated, message: "使用类型安全的重载版本: ls_objectArrayWithKeyValuesArray([[String: Any]])")
     public static func ls_objectArrayWithKeyValuesArray<T: Decodable>(_ keyValuesArray: Any) -> [T]? {
         switch keyValuesArray {
         case let array as [[String: Any]]:

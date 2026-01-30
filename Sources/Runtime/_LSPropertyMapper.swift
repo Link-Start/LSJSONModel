@@ -35,13 +35,10 @@ internal final class _LSPropertyMapper {
     internal static func properties(of type: Any.Type) -> [_LSPropertyMetadata] {
         let typeName = String(describing: type)
 
-        // 检查缓存
-        lock.lock()
-        if let cached = propertyCache[typeName] {
-            lock.unlock()
+        // 检查缓存 - 使用 withLock 确保线程安全
+        if let cached = lock.withLock({ propertyCache[typeName] }) {
             return cached
         }
-        lock.unlock()
 
         // 使用 Mirror 反射获取属性
         let metadataList: [_LSPropertyMetadata] = []

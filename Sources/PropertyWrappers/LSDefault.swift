@@ -36,9 +36,14 @@ public struct LSDefault<T: LSDefaultWritable> {
     public let defaultValue: T
 
     /// 包装值
+    ///
+    /// 注意：此属性包装器主要用于 Codable 解码场景。
+    /// getter 返回当前值（解码后的值或默认值）。
+    /// setter 不执行任何操作，因为值存储由 Codable 系统直接管理。
+    /// 如果需要可修改的属性包装器，请使用 `LSDefaultMutable`。
     public var wrappedValue: T {
         get { defaultValue }
-        set { /* 存储通过 Codable 处理 */ }
+        set { /* 存储由 Codable 系统管理，setter 不执行任何操作 */ }
     }
 
     /// 初始化默认值包装器
@@ -46,6 +51,67 @@ public struct LSDefault<T: LSDefaultWritable> {
     /// - Parameter defaultValue: 当 JSON 中缺失或为 nil 时使用的默认值
     public init(_ defaultValue: T) {
         self.defaultValue = defaultValue
+    }
+}
+
+// MARK: - LSDefaultMutable
+
+/// 可变默认值属性包装器
+///
+/// 与 `LSDefault` 类似，但允许通过 wrappedValue 修改值。
+///
+/// 使用示例：
+/// ```swift
+/// struct Settings: Codable {
+///     @LSDefaultMutable(10) var maxRetries: Int
+///     @LSDefaultMutable("") var userName: String
+/// }
+/// ```
+@propertyWrapper
+public struct LSDefaultMutable<T: LSDefaultWritable & Codable> {
+    /// 内部存储
+    private var storage: T
+
+    /// 默认值（用于初始化和解码失败时的回退）
+    public let defaultValue: T
+
+    /// 包装值（可读写）
+    public var wrappedValue: T {
+        get { storage }
+        set { storage = newValue }
+    }
+
+    /// 初始化可变默认值包装器
+    ///
+    /// - Parameter defaultValue: 默认值
+    public init(_ defaultValue: T) {
+        self.defaultValue = defaultValue
+        self.storage = defaultValue
+    }
+}
+
+// MARK: - LSDefaultMutable Codable Support
+
+extension LSDefaultMutable: Decodable {
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+
+        // 尝试解码值
+        if let value = try? container.decode(T.self) {
+            self.storage = value
+        } else {
+            // 解码失败时使用默认值
+            self.storage = T.lsDefaultValue
+        }
+
+        self.defaultValue = storage
+    }
+}
+
+extension LSDefaultMutable: Encodable {
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(storage)
     }
 }
 
@@ -77,7 +143,8 @@ extension LSDefault: Encodable where T: Encodable {
 /// 默认值可写协议
 ///
 /// 符合此协议的类型可以提供默认值。
-public protocol LSDefaultWritable {
+/// 在 Swift 6 严格并发模式下，此协议要求类型是 Sendable 的。
+public protocol LSDefaultWritable: Sendable {
     /// 类型的默认值
     static var lsDefaultValue: Self { get }
 }

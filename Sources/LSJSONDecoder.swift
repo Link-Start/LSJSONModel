@@ -66,6 +66,40 @@ public struct LSJSONDecoder {
             return nil
         }
     }
+
+    // MARK: - Result API
+
+    /// 从 JSON 字符串解码（Result 类型）
+    public static func decodeForResult<T: Decodable>(_ json: String, as type: T.Type) -> Result<T, LSJSONError> {
+        guard let data = json.data(using: .utf8) else {
+            return .failure(.invalidJSONString(json))
+        }
+        return decodeForResult(data, as: type)
+    }
+
+    /// 从 JSON 数据解码（Result 类型）
+    public static func decodeForResult<T: Decodable>(_ data: Data, as type: T.Type) -> Result<T, LSJSONError> {
+        do {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            let result = try decoder.decode(T.self, from: data)
+            return .success(result)
+        } catch let decodingError as DecodingError {
+            return .failure(.from(decodingError))
+        } catch {
+            return .failure(.decodingFailed(error))
+        }
+    }
+
+    /// 从字典解码（Result 类型）
+    public static func decodeForResult<T: Decodable>(_ dict: [String: Any], as type: T.Type) -> Result<T, LSJSONError> {
+        do {
+            let data = try JSONSerialization.data(withJSONObject: dict)
+            return decodeForResult(data, as: type)
+        } catch {
+            return .failure(.serializationFailed(dict))
+        }
+    }
 }
 
 // MARK: - Decoder State Manager
@@ -210,5 +244,22 @@ extension Decodable {
     /// 从 JSON 数组解码
     public static func ls_decodeArrayFromJSON(_ jsonString: String) -> [Self]? {
         return LSJSONDecoder.decodeArray(jsonString, as: Self.self)
+    }
+
+    // MARK: - Result API
+
+    /// 从 JSON 字符串解码（Result 类型）
+    public static func ls_decodeForResult(_ json: String) -> Result<Self, LSJSONError> {
+        return LSJSONDecoder.decodeForResult(json, as: Self.self)
+    }
+
+    /// 从 JSON 数据解码（Result 类型）
+    public static func ls_decodeFromJSONDataForResult(_ jsonData: Data) -> Result<Self, LSJSONError> {
+        return LSJSONDecoder.decodeForResult(jsonData, as: Self.self)
+    }
+
+    /// 从字典解码（Result 类型）
+    public static func ls_decodeFromDictionaryForResult(_ dict: [String: Any]) -> Result<Self, LSJSONError> {
+        return LSJSONDecoder.decodeForResult(dict, as: Self.self)
     }
 }

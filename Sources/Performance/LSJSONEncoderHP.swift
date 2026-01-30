@@ -5,40 +5,73 @@
 //  Created by link-start on 2026-01-24.
 //  Copyright © 2026 link-start. All rights reserved.
 //
+//  Swift 6 严格并发模式重构版本
+//
 
 import Foundation
 
+// MARK: - LSJSONEncoderHPState (Actor)
+
+/// 编码器缓存状态管理器（Actor）
+/// 使用 actor 确保所有缓存访问的线程安全
+private actor LSJSONEncoderHPState {
+    // MARK: - Properties
+
+    /// 字符串缓冲区缓存（只缓存字符串哈希值，避免 Any 类型）
+    private(set) var bufferCache: Set<String> = []
+
+    /// 缓存大小限制
+    private let maxCacheSize = 100
+
+    // MARK: - Buffer Caching
+
+    /// 检查缓冲区是否已缓存
+    func isBufferCached(_ hash: String) -> Bool {
+        bufferCache.contains(hash)
+    }
+
+    /// 缓存缓冲区哈希值
+    func cacheBufferHash(_ hash: String) {
+        if bufferCache.count >= maxCacheSize {
+            // 移除一半
+            let hashesToRemove = Array(bufferCache.prefix(maxCacheSize / 2))
+            for hash in hashesToRemove {
+                bufferCache.remove(hash)
+            }
+        }
+
+        bufferCache.insert(hash)
+    }
+
+    /// 清除所有缓存
+    func clearAll() {
+        bufferCache.removeAll()
+    }
+
+    /// 获取缓存大小
+    func getCacheSize() -> Int {
+        bufferCache.count
+    }
+}
+
 // MARK: - LSJSONEncoderHP
 
-/// 极致性能编码器
+/// 极致性能编码器（Swift 6 重构版）
 ///
 /// 优化策略：
-/// - 直接内存读取
-/// - 缓冲区预分配
-/// - 流式编码
-/// - 类型特化处理
-/// - LRU 缓存淘汰策略
+/// - 直接使用 Codable（已高度优化）
+/// - 移除不安全的 Any 类型缓存
+/// - 使用 actor 确保线程安全
 internal final class LSJSONEncoderHP {
 
     // MARK: - Properties
 
-    /// 统一缓存锁（避免多锁死锁）
-    private static let cacheLock = NSLock()
+    /// 状态管理器（Actor）
+    private static let state = LSJSONEncoderHPState()
 
-    /// 编码器缓存
-    private static var encoderCache: [String: Any] = [:]
-
-    /// 编码器缓存访问顺序（用于 LRU）
-    private static var encoderCacheAccessOrder: [String] = []
-
-    /// 字符串缓冲区缓存
-    private static var bufferCache: [String] = []
-
-    /// 缓存大小限制
-    private static let maxCacheSize = 100
-
-    /// LRU 淘汰阈值
-    private static let lruThreshold = 80
+    /// 缓存启用标志
+    private static let cacheQueue = DispatchQueue(label: "com.lsjsonmodel.encoderhp")
+    private static var _cacheEnabled: Bool = true
 
     // MARK: - High Performance Encode
 
@@ -49,6 +82,7 @@ internal final class LSJSONEncoderHP {
     internal static func encode<T>(_ value: T) -> String? where T: Encodable {
         do {
             let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
             let data = try encoder.encode(value)
             return String(data: data, encoding: .utf8)
         } catch {
@@ -64,6 +98,7 @@ internal final class LSJSONEncoderHP {
     internal static func encodeToData<T>(_ value: T) -> Data? where T: Encodable {
         do {
             let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
             return try encoder.encode(value)
         } catch {
             print("[LSJSONEncoderHP] ❌ 编码为 Data 失败: \(error)")
@@ -78,6 +113,7 @@ internal final class LSJSONEncoderHP {
     internal static func encodeArray<T>(_ array: [T]) -> String? where T: Encodable {
         do {
             let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
             let data = try encoder.encode(array)
             return String(data: data, encoding: .utf8)
         } catch {
@@ -90,27 +126,34 @@ internal final class LSJSONEncoderHP {
 
     /// 清除所有缓存
     internal static func clearCache() {
-        cacheLock.withLock {
-            encoderCache.removeAll()
-            encoderCacheAccessOrder.removeAll()
-            bufferCache.removeAll()
+        Task {
+            await state.clearAll()
         }
     }
 
-    /// LRU 缓存管理辅助方法
-    private static func manageLRUCache(forKey key: String) {
-        cacheLock.withLock {
-            // 移动到末尾（最近使用）
-            if let index = encoderCacheAccessOrder.firstIndex(of: key) {
-                encoderCacheAccessOrder.remove(at: index)
-            }
-            encoderCacheAccessOrder.append(key)
+    /// 启用缓存
+    internal static var cacheEnabled: Bool {
+        get {
+            cacheQueue.sync { _cacheEnabled }
+        }
+        set {
+            cacheQueue.sync { _cacheEnabled = newValue }
+        }
+    }
 
-            // 检查是否超过 LRU 阈值
-            while encoderCacheAccessOrder.count > lruThreshold {
-                let oldest = encoderCacheAccessOrder.removeFirst()
-                encoderCache.removeValue(forKey: oldest)
-            }
+    /// 获取缓存统计
+    ///
+    /// - Returns: 缓存统计信息
+    internal static func getCacheStats() -> MethodCacheStats {
+        get async {
+            let cacheSize = await state.getCacheSize()
+            return MethodCacheStats(
+                propertyCacheCount: 0,
+                methodCacheCount: 0,
+                mappingCacheCount: cacheSize,
+                hitCount: 0,
+                missCount: 0
+            )
         }
     }
 
@@ -128,15 +171,37 @@ internal final class LSJSONEncoderHP {
     }
 }
 
-// MARK: - Performance Monitor
+// MARK: - LSPerformanceMonitor
 
 /// 性能监控器（线程安全）
+///
+/// 使用 actor 确保所有指标访问的线程安全
 internal final class LSPerformanceMonitor {
 
     // MARK: - Properties
 
-    private static let lock = NSLock()
-    private static var metrics: [String: TimeInterval] = [:]
+    /// 指标管理器（Actor）
+    private actor MetricsState {
+        var metrics: [String: TimeInterval] = [:]
+
+        func addDuration(_ duration: TimeInterval, for name: String) {
+            metrics[name] = (metrics[name] ?? 0) + duration
+        }
+
+        func getDuration(for name: String) -> TimeInterval? {
+            metrics[name]
+        }
+
+        func reset() {
+            metrics.removeAll()
+        }
+
+        func getAllMetrics() -> [(String, TimeInterval)] {
+            metrics.sorted(by: { $0.value > $1.value })
+        }
+    }
+
+    private static let state = MetricsState()
 
     // MARK: - Measurement
 
@@ -151,8 +216,8 @@ internal final class LSPerformanceMonitor {
         let result = block()
         let duration = Date().timeIntervalSince(start)
 
-        lock.withLock {
-            metrics[name] = (metrics[name] ?? 0) + duration
+        Task {
+            await state.addDuration(duration, for: name)
         }
 
         #if DEBUG
@@ -167,20 +232,25 @@ internal final class LSPerformanceMonitor {
     /// - Parameter name: 操作名称
     /// - Returns: 总耗时
     internal static func getDuration(for name: String) -> TimeInterval? {
-        return lock.withLock { metrics[name] }
+        get async {
+            await state.getDuration(for: name)
+        }
     }
 
     /// 重置指标
     internal static func reset() {
-        lock.withLock { metrics.removeAll() }
+        Task {
+            await state.reset()
+        }
     }
 
     /// 打印所有指标
     internal static func printMetrics() {
-        lock.withLock {
+        Task {
+            let metrics = await state.getAllMetrics()
             #if DEBUG
             print("========== Performance Metrics ==========")
-            for (name, duration) in metrics.sorted(by: { $0.value > $1.value }) {
+            for (name, duration) in metrics {
                 print("\(name): \(String(format: "%.3f", duration * 1000))ms")
             }
             print("=========================================")
