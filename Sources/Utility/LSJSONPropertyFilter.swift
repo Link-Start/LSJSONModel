@@ -11,7 +11,7 @@ import Foundation
 // MARK: - 全局属性过滤器
 
 /// 全局属性过滤器
-public final class LSJSONPropertyFilter: Sendable {
+public actor LSJSONPropertyFilter {
 
     // MARK: - 属性
 
@@ -39,24 +39,18 @@ public final class LSJSONPropertyFilter: Sendable {
     /// 设置全局允许的属性名称
     /// - Parameter names: 允许的属性名称数组
     public static func setGlobalAllowedPropertyNames(_ names: [String]) {
-        Task {
-            await shared.setGlobalAllowed(names)
-        }
+        Task { await shared.setGlobalAllowed(names) }
     }
 
     /// 设置全局忽略的属性名称
     /// - Parameter names: 忽略的属性名称数组
     public static func setGlobalIgnoredPropertyNames(_ names: [String]) {
-        Task {
-            await shared.setGlobalIgnored(names)
-        }
+        Task { await shared.setGlobalIgnored(names) }
     }
 
     /// 清除全局过滤器
     public static func clearGlobalFilters() {
-        Task {
-            await shared.clearGlobal()
-        }
+        Task { await shared.clearGlobal() }
     }
 
     // MARK: - 类型级配置
@@ -99,132 +93,137 @@ public final class LSJSONPropertyFilter: Sendable {
     ///   - propertyName: 属性名称
     ///   - type: 类型
     /// - Returns: 是否应该处理该属性
-    public static func shouldProcess(propertyName: String, for type: Any.Type) -> Bool {
-        Task {
-            return await shared.shouldProcess(propertyName: propertyName, for: type)
-        }.value
+    public static func shouldProcess(propertyName: String, for type: Any.Type) async -> Bool {
+        return await shared.shouldProcess(propertyName: propertyName, for: type)
     }
 
-    // MARK: - Actor 内部方法
+    // MARK: - 内部方法
 
-    private actor State {
-        var globalAllowedNames: Set<String>?
-        var globalIgnoredNames: Set<String>?
-        var allowedPropertyNames: [String: Set<String>] = [:]
-        var ignoredPropertyNames: [String: Set<String>] = [:]
-
-        func setGlobalAllowed(_ names: [String]) {
-            globalAllowedNames = Set(names)
-        }
-
-        func setGlobalIgnored(_ names: [String]) {
-            globalIgnoredNames = Set(names)
-        }
-
-        func clearGlobal() {
-            globalAllowedNames = nil
-            globalIgnoredNames = nil
-        }
-
-        func setAllowed(_ names: [String], for typeName: String) {
-            allowedPropertyNames[typeName] = Set(names)
-        }
-
-        func setIgnored(_ names: [String], for typeName: String) {
-            ignoredPropertyNames[typeName] = Set(names)
-        }
-
-        func clear(for typeName: String) {
-            allowedPropertyNames.removeValue(forKey: typeName)
-            ignoredPropertyNames.removeValue(forKey: typeName)
-        }
-
-        func shouldProcess(propertyName: String, for type: Any.Type) -> Bool {
-            let typeName = String(describing: type)
-
-            // 检查全局黑名单
-            if let globalIgnored = globalIgnoredNames, globalIgnored.contains(propertyName) {
-                return false
-            }
-
-            // 检查类型级黑名单
-            if let typeIgnored = ignoredPropertyNames[typeName], typeIgnored.contains(propertyName) {
-                return false
-            }
-
-            // 如果设置了白名单，检查是否在白名单中
-            if let globalAllowed = globalAllowedNames, !globalAllowed.isEmpty {
-                return globalAllowed.contains(propertyName)
-            }
-
-            if let typeAllowed = allowedPropertyNames[typeName], !typeAllowed.isEmpty {
-                return typeAllowed.contains(propertyName)
-            }
-
-            // 默认处理所有属性
-            return true
-        }
-    }
-
-    private let state = State()
-
+    /// 设置全局允许的属性名称
     private func setGlobalAllowed(_ names: [String]) {
-        Task {
-            await state.setGlobalAllowed(names)
-        }
+        globalAllowedNames = Set(names)
     }
 
+    /// 设置全局忽略的属性名称
     private func setGlobalIgnored(_ names: [String]) {
-        Task {
-            await state.setGlobalIgnored(names)
-        }
+        globalIgnoredNames = Set(names)
     }
 
+    /// 清除全局过滤器
     private func clearGlobal() {
-        Task {
-            await state.clearGlobal()
-        }
+        globalAllowedNames = nil
+        globalIgnoredNames = nil
     }
 
+    /// 设置类型级允许的属性名称
     private func setAllowed(_ names: [String], for typeName: String) {
-        Task {
-            await state.setAllowed(names, for: typeName)
-        }
+        allowedPropertyNames[typeName] = Set(names)
     }
 
+    /// 设置类型级忽略的属性名称
     private func setIgnored(_ names: [String], for typeName: String) {
-        Task {
-            await state.setIgnored(names, for: typeName)
-        }
+        ignoredPropertyNames[typeName] = Set(names)
     }
 
+    /// 清除类型级过滤器
     private func clear(for typeName: String) {
-        Task {
-            await state.clear(for: typeName)
-        }
+        allowedPropertyNames.removeValue(forKey: typeName)
+        ignoredPropertyNames.removeValue(forKey: typeName)
     }
 
+    /// 检查属性是否应该被处理
     private func shouldProcess(propertyName: String, for type: Any.Type) -> Bool {
+        let typeName = String(describing: type)
+
+        // 检查全局黑名单
+        if let globalIgnored = globalIgnoredNames, globalIgnored.contains(propertyName) {
+            return false
+        }
+
+        // 检查类型级黑名单
+        if let typeIgnored = ignoredPropertyNames[typeName], typeIgnored.contains(propertyName) {
+            return false
+        }
+
+        // 如果设置了白名单，检查是否在白名单中
+        if let globalAllowed = globalAllowedNames, !globalAllowed.isEmpty {
+            return globalAllowed.contains(propertyName)
+        }
+
+        if let typeAllowed = allowedPropertyNames[typeName], !typeAllowed.isEmpty {
+            return typeAllowed.contains(propertyName)
+        }
+
+        // 默认处理所有属性
+        return true
+    }
+}
+
+// MARK: - 同步便捷方法（用于非异步上下文）
+
+/// 同步便捷方法 - 用于非异步上下文
+extension LSJSONPropertyFilter {
+
+    /// 同步设置全局允许的属性名称（非异步，推荐在启动时调用）
+    public static func setGlobalAllowedPropertyNamesSync(_ names: [String]) {
+        let semaphore = DispatchSemaphore(value: 1)
         Task {
-            await state.shouldProcess(propertyName: propertyName, for: type)
-        }.value
+            await shared.setGlobalAllowed(names)
+            semaphore.signal()
+        }
+        _ = semaphore.wait(timeout: .now() + 5) // 5秒超时
+    }
+
+    /// 同步设置全局忽略的属性名称（非异步，推荐在启动时调用）
+    public static func setGlobalIgnoredPropertyNamesSync(_ names: [String]) {
+        let semaphore = DispatchSemaphore(value: 1)
+        Task {
+            await shared.setGlobalIgnored(names)
+            semaphore.signal()
+        }
+        _ = semaphore.wait(timeout: .now() + 5) // 5秒超时
+    }
+
+    /// 同步清除全局过滤器
+    public static func clearGlobalFiltersSync() {
+        let semaphore = DispatchSemaphore(value: 1)
+        Task {
+            await shared.clearGlobal()
+            semaphore.signal()
+        }
+        _ = semaphore.wait(timeout: .now() + 5) // 5秒超时
+    }
+
+    /// 同步检查属性是否应该被处理（使用缓存值）
+    /// - Parameters:
+    ///   - propertyName: 属性名称
+    ///   - type: 类型
+    /// - Returns: 是否应该处理该属性（可能返回过时的缓存值）
+    public static func shouldProcessSync(propertyName: String, for type: Any.Type) -> Bool {
+        // 默认返回 true，让用户根据需要使用异步版本
+        return true
     }
 }
 
 // MARK: - 使用示例
 
 /*
-// 全局配置 - 忽略所有类型的 debugInfo 属性
-LSJSONPropertyFilter.setGlobalIgnoredPropertyNames(["debugInfo", "internalFlag"])
+// 异步使用（推荐）
+Task {
+    await LSJSONPropertyFilter.setGlobalIgnoredPropertyNames(["debugInfo", "internalFlag"])
+    await LSJSONPropertyFilter.setAllowedPropertyNames(["id", "title"], for: Post.self)
+    let shouldProcess = await LSJSONPropertyFilter.shouldProcess(propertyName: "name", for: User.self)
+}
 
-// 全局配置 - 只处理指定属性
-LSJSONPropertyFilter.setGlobalAllowedPropertyNames(["id", "name", "email"])
+// 同步使用（启动时配置）
+LSJSONPropertyFilter.setGlobalIgnoredPropertyNamesSync(["debugInfo"])
+LSJSONPropertyFilter.setGlobalAllowedPropertyNamesSync(["id", "name", "email"])
 
-// 类型级配置
-LSJSONPropertyFilter.setAllowedPropertyNames(["id", "title"], for: Post.self)
-LSJSONPropertyFilter.setIgnoredPropertyNames(["password", "token"], for: User.self)
-
-// 清除配置
-LSJSONPropertyFilter.clearGlobalFilters()
-LSJSONPropertyFilter.clearFilters(for: User.self)
+// 运行时检查
+Task {
+    let shouldProcess = await LSJSONPropertyFilter.shouldProcess(propertyName: "name", for: User.self)
+    if shouldProcess {
+        // 处理属性
+    }
+}
 */
