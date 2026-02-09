@@ -1,5 +1,37 @@
 # 更新日志
 
+## [1.2.1] - 2025-02-09
+
+### Bug 修复
+
+- 🐛 **Swift 6 并发安全** - 重写属性过滤器为 Actor
+  - 将 LSJSONPropertyFilter 从 class 改为 actor（避免竞态条件）
+  - 移除阻塞式 `.value` 调用（防止死锁）
+  - 移除 fire-and-forget Tasks
+  - 添加同步便捷方法（带超时保护的 Semaphore）
+
+### 新增 API
+
+- `setGlobalAllowedPropertyNamesSync()` - 同步设置全局白名单
+- `setGlobalIgnoredPropertyNamesSync()` - 同步设置全局黑名单
+- `clearGlobalFiltersSync()` - 同步清除全局过滤器
+- `shouldProcessSync()` - 同步检查属性（默认返回 true）
+
+### 技术改进
+
+- ✅ 所有状态现在由 Actor 隔离保护
+- ✅ 正确的 async/await 模式
+- ✅ 向后兼容的同步 API（推荐在启动时使用）
+
+### 兼容性
+
+- iOS 13.0+
+- macOS 10.15+
+- Swift 6.0+
+- Xcode 16.0+
+
+---
+
 ## [1.2.0] - 2025-02-09
 
 ### 新增功能
