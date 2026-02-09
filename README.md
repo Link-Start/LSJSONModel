@@ -35,6 +35,9 @@
 - [跨 Model 转换](#跨-model-转换)
 - [归档解档](#归档解档)
 - [Core Data 支持](#core-data-支持) 🆕
+- [JSON 路径查询](#json-路径查询) 🆕
+- [属性过滤器](#属性过滤器) 🆕
+- [NSSecureCoding](#nsecurecoding) 🆕
 - [性能优化](#性能优化)
 - [API 参考](#api-参考)
 - [迁移指南](#迁移指南)
@@ -421,6 +424,184 @@ if let arrayData = users.ls_archiveArrayData() {
         print(restoredUsers.count)  // 3
     }
 }
+```
+
+---
+
+## JSON 路径查询
+
+LSJSONModel 支持从嵌套 JSON 中提取数据，使用点号分隔的路径：
+
+### 基础用法
+
+```swift
+let json: [String: Any] = [
+    "user": [
+        "profile": [
+            "name": "张三",
+            "age": 25
+        ]
+    ]
+]
+
+// 获取嵌套值
+let name = try json.ls_value(for: "user.profile.name") as? String
+// "张三"
+
+let age = try json.ls_value(for: "user.profile.age") as? Int
+// 25
+```
+
+### 链式查询
+
+```swift
+// 使用链式代理
+let value = json.ls
+let name = value.string(for: "user.profile.name", default: "未知")
+let age = value.int(for: "user.profile.age", default: 0)
+```
+
+### 带默认值的查询
+
+```swift
+// 如果路径不存在，返回默认值
+let name = json.ls_value(for: "user.profile.name", default: "未知")
+let count = json.ls_value(for: "items.count", default: 0)
+```
+
+### 数组索引支持
+
+```swift
+let json: [String: Any] = [
+    "users": [
+        ["name": "张三"],
+        ["name": "李四"]
+    ]
+]
+
+// 获取数组中指定索引的值
+let name = try json.ls_value(for: "users.0.name") as? String
+// "张三"
+```
+
+### 检查路径是否存在
+
+```swift
+if json.ls.exists("user.profile.email") {
+    print("email 存在")
+}
+```
+
+---
+
+## 属性过滤器
+
+LSJSONModel 支持动态设置属性白名单/黑名单：
+
+### 全局配置
+
+```swift
+// 忽略所有类型的 debugInfo 属性
+LSJSONPropertyFilter.setGlobalIgnoredPropertyNames(["debugInfo", "internalFlag"])
+
+// 只处理指定属性
+LSJSONPropertyFilter.setGlobalAllowedPropertyNames(["id", "name", "email"])
+```
+
+### 类型级配置
+
+```swift
+// 为指定类型设置白名单
+LSJSONPropertyFilter.setAllowedPropertyNames(["id", "title"], for: Post.self)
+
+// 为指定类型设置黑名单
+LSJSONPropertyFilter.setIgnoredPropertyNames(["password", "token"], for: User.self)
+```
+
+### 清除配置
+
+```swift
+// 清除全局配置
+LSJSONPropertyFilter.clearGlobalFilters()
+
+// 清除指定类型的配置
+LSJSONPropertyFilter.clearFilters(for: User.self)
+```
+
+---
+
+## NSSecureCoding 支持
+
+LSJSONModel 提供增强的 NSSecureCoding 支持：
+
+### 定义支持安全编码的类
+
+```swift
+class User: NSObject, LSSecureCoding {
+    var name: String
+    var email: String
+
+    init(name: String, email: String) {
+        self.name = name
+        self.email = email
+        super.init()
+    }
+
+    // MARK: NSCoding
+
+    required init?(coder: NSCoder) {
+        self.name = coder.decodeObject(forKey: "name") as? String ?? ""
+        self.email = coder.decodeObject(forKey: "email") as? String ?? ""
+        super.init()
+    }
+
+    func encode(with coder: NSCoder) {
+        coder.encode(name, forKey: "name")
+        coder.encode(email, forKey: "email")
+    }
+
+    // MARK: NSSecureCoding
+
+    static var supportsSecureCoding: Bool {
+        return true
+    }
+}
+```
+
+### 使用方法
+
+```swift
+let user = User(name: "张三", email: "zhangsan@example.com")
+
+// 归档到 Data
+let data = try user.ls_archiveData()
+
+// 从 Data 解档
+let restoredUser = try User.ls_unarchive(from: data)
+
+// 归档到文件
+try user.ls_archiveFile(to: "/path/to/user.archive")
+
+// 从文件解档
+let fileUser = try User.ls_unarchive(from: "/path/to/user.archive")
+```
+
+### 批量操作
+
+```swift
+let users = [user1, user2, user3]
+
+// 批量归档
+let batchData = try LSJSONSecureBatch.archive(users)
+
+// 批量解档
+let restoredUsers = try LSJSONSecureBatch.unarchive(batchData, ofType: User.self)
+
+// 批量归档到文件
+try LSJSONSecureBatch.archiveToFile(users, to: "/path/to/users.archive")
+
+// 从文件批量解档
+let fileUsers = try LSJSONSecureBatch.unarchiveFromFile("/path/to/users.archive", ofType: User.self)
 ```
 
 ---

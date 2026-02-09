@@ -8,7 +8,7 @@
 
 Pod::Spec.new do |s|
   s.name             = 'LSJSONModel'
-  s.version          = '1.1.0'
+  s.version          = '1.2.0'
   s.summary          = '基于 Codable 优点的 JSON 转 Model 库，支持 Swift 6 和 Objective-C'
   s.description      = <<-DESC
 LSJSONModel 是一个基于 Codable 优点的 JSON 转 Model 库，支持 Swift 6 和 Objective-C。
