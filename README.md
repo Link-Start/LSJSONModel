@@ -6,6 +6,24 @@
 
 ---
 
+## 🙏 致谢
+
+本项目灵感来源于 **[MJExtension](https://github.com/CoderMJLee/MJExtension)** by **[CoderMJLee](https://github.com/CoderMJLee)**。
+
+> **感谢 CoderMJLee** 创建优秀的 JSON 转模型框架并分享！
+
+本项目使用 Swift 6 的 Codable 从零重写，以实现等效功能并添加以下增强：
+
+- ✨ **Swift 6 Codable**：利用原生 Codable 协议，无需继承基类
+- ✨ **全局映射系统**：一处设置，全局生效
+- ✨ **跨 Model 转换**：不同 Model 类型之间无缝转换
+- ✨ **性能优化**：映射查询缓存，确保高效
+- ✨ **Objective-C 兼容**：支持 @objc 协议，方便混编
+
+原始项目采用 **MIT License**，本项目同样采用 **MIT License** 发布。
+
+---
+
 ## 目录
 
 - [特性](#特性)
@@ -16,6 +34,7 @@
 - [全局映射系统](#全局映射系统)
 - [跨 Model 转换](#跨-model-转换)
 - [归档解档](#归档解档)
+- [Core Data 支持](#core-data-支持) 🆕
 - [性能优化](#性能优化)
 - [API 参考](#api-参考)
 - [迁移指南](#迁移指南)
@@ -490,6 +509,197 @@ let json = user.ls_encode()
 
 ---
 
+## Core Data 支持
+
+> LSJSONModel 完整支持 Core Data，提供 JSON 到 NSManagedObject 的无缝转换！
+
+### 基础用法
+
+```swift
+import CoreData
+import LSJSONModel
+
+// 从 JSON 字典创建 Core Data 对象
+let jsonDict: [String: Any] = [
+    "id": "123",
+    "name": "张三",
+    "email": "zhangsan@example.com"
+]
+
+let user = User(context: context)
+try? user.ls_objectWithKeyValues(jsonDict, context: context)
+```
+
+### 从 JSON 数据/字符串创建
+
+```swift
+// 从 JSON Data
+let jsonData = """
+{
+    "id": "123",
+    "name": "张三"
+}
+""".data(using: .utf8)!
+
+let user = User(context: context)
+try? user.ls_fromJSON(jsonData, context: context)
+
+// 从 JSON 字符串
+try? user.ls_fromJSON("{\"id\":\"123\",\"name\":\"张三\"}", context: context)
+```
+
+### 批量操作
+
+```swift
+// 从 JSON 数组批量创建
+let jsonArray: [[String: Any]] = [
+    ["id": "1", "name": "张三"],
+    ["id": "2", "name": "李四"],
+    ["id": "3", "name": "王五"]
+]
+
+let users = try? User.ls_objectsWithKeyValues(jsonArray, context: context)
+```
+
+### 使用 LSJSONCoreDataHelper
+
+```swift
+// 异步批量保存
+LSJSONCoreDataHelper.batchSave(
+    jsonArray: jsonArray,
+    as: User.self,
+    context: context
+) { result in
+    switch result {
+    case .success(let count):
+        print("成功保存 \(count) 个对象")
+    case .failure(let error):
+        print("保存失败: \(error)")
+    }
+}
+
+// 同步批量保存
+do {
+    let count = try LSJSONCoreDataHelper.batchSaveSync(
+        jsonArray: jsonArray,
+        as: User.self,
+        context: context
+    )
+    print("成功保存 \(count) 个对象")
+} catch {
+    print("保存失败: \(error)")
+}
+```
+
+### 从文件导入
+
+```swift
+let fileURL = Bundle.main.url(forResource: "users", withExtension: "json")!
+
+LSJSONCoreDataHelper.importFromFile(
+    at: fileURL,
+    as: User.self,
+    context: context
+) { result in
+    switch result {
+    case .success(let count):
+        print("成功导入 \(count) 个对象")
+    case .failure(let error):
+        print("导入失败: \(error)")
+    }
+}
+```
+
+### 导出到 JSON
+
+```swift
+// 单个对象转字典
+let dict = user.ls_keyValues()
+
+// 单个对象转 JSON 字符串
+let jsonString = user.ls_JSONString()
+
+// 数组转 JSON 字符串
+let jsonString = User.ls_JSONString(from: users)
+
+// 导出到文件
+let fileURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    .appendingPathComponent("users.json")
+
+LSJSONCoreDataHelper.exportToFile(
+    objects: users,
+    to: fileURL,
+    context: context
+) { result in
+    switch result {
+    case .success:
+        print("导出成功")
+    case .failure(let error):
+        print("导出失败: \(error)")
+    }
+}
+```
+
+### 主键检测
+
+LSJSONModel 会自动检测常见的主键属性：
+- `id`, `ID`, `Id`
+- `uuid`, `UUID`
+- `ObjectId`, `objectID`
+
+可以通过 `userInfo` 标记自定义主键：
+
+```swift
+// 在 Core Data 模型编辑器中
+// 属性 > User Info > 添加
+// Key: `isPrimaryKey`
+// Value: `true`
+```
+
+### 关系属性
+
+```swift
+// 一对一关系
+let jsonDict: [String: Any] = [
+    "id": "1",
+    "name": "张三",
+    "profile": [
+        "avatar": "avatar.png",
+        "bio": "Hello"
+    ]
+]
+// 自动处理关系属性
+
+// 一对多关系
+let jsonDict: [String: Any] = [
+    "id": "1",
+    "name": "张三",
+    "friends": [
+        ["id": "2", "name": "李四"],
+        ["id": "3", "name": "王五"]
+    ]
+]
+// 自动处理数组关系
+```
+
+### 错误处理
+
+```swift
+do {
+    try user.ls_objectWithKeyValues(jsonDict, context: context)
+} catch LSJSONCoreDataError.invalidJSON {
+    print("无效的 JSON 数据")
+} catch LSJSONCoreDataError.invalidEntity {
+    print("无效的实体")
+} catch LSJSONCoreDataError.contextDeallocated {
+    print("Core Data 上下文已释放")
+} catch {
+    print("其他错误: \(error)")
+}
+```
+
+---
+
 ## 性能优化
 
 ### 缓存预热
@@ -704,7 +914,7 @@ MIT License
 
 ---
 
-**版本**: v1.0.0
-**最后更新**: 2026-01-26
+**版本**: v1.1.0
+**最后更新**: 2025-02-09
 **开发者**: link-start
 **发布工具**: iFlow CLI
